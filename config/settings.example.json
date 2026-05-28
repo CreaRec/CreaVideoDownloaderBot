@@ -1,0 +1,22 @@
+{
+  "telegram": {
+    "apiId": 123456,
+    "apiHash": "your_telegram_api_hash",
+    "stringSession": "",
+    "botToken": "123456789:your_bot_token",
+    "botUsername": "your_bot_username_without_at",
+    "allowedUserIds": [123456789]
+  },
+  "download": {
+    "directory": "/absolute/path/to/save/videos",
+    "overwriteExisting": false
+  },
+  "openai": {
+    "apiKey": "",
+    "model": "gpt-5.4-mini",
+    "instructionsPath": "config/media-classification-instructions.md"
+  },
+  "app": {
+    "logLevel": "info"
+  }
+}

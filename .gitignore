@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+# Local runtime settings contain Telegram credentials and sessions.
+config/settings.json
+
+# Local logs and OS/editor noise.
+*.log
+.DS_Store
