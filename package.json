@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "login": "tsx src/login.ts",
-    "validate:settings": "tsx src/validate-settings.ts"
+    "validate:settings": "tsx src/validate-settings.ts",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\""
   },
   "engines": {
     "node": ">=22.9.0"

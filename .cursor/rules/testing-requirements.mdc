@@ -1,0 +1,11 @@
+---
+description: Require tests for new features and verify changes after implementation
+alwaysApply: true
+---
+
+# Testing Requirements
+
+- Create or update tests for every new feature. Cover the expected behavior and any important edge cases introduced by the change.
+- Follow the project's existing test structure, naming, and tooling. Prefer focused tests near the code they validate when the repo already uses that pattern.
+- Always run the relevant test command after implementation. If the change is broad or the relevant scope is unclear, run the full test suite.
+- If tests cannot be run, explain why and report the exact command that should be run next.

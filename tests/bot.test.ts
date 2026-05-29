@@ -1,0 +1,458 @@
+import assert from "node:assert/strict";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, mock, test } from "node:test";
+import {
+  BotService,
+  createProgressReporter,
+  formatBytes,
+  getCaption,
+  getDisplayFileName,
+  getSuggestedFileName,
+} from "../src/bot.js";
+import { createDeleteButtonReplyMarkup, parseDeleteCallbackData, type DeleteButtonReplyMarkup } from "../src/delete-buttons.js";
+import { DownloadCanceledError, type DownloadRequest } from "../src/downloader.js";
+import type { FileTreeBrowser } from "../src/file-tree.js";
+import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
+
+afterEach(() => {
+  mock.restoreAll();
+});
+
+test("formatBytes renders unknown, byte, and larger values", () => {
+  assert.equal(formatBytes(undefined), "unknown size");
+  assert.equal(formatBytes(Number.NaN), "unknown size");
+  assert.equal(formatBytes(512), "512 B");
+  assert.equal(formatBytes(1536), "1.50 KB");
+  assert.equal(formatBytes(12 * 1024), "12.0 KB");
+  assert.equal(formatBytes(5 * 1024 * 1024), "5.00 MB");
+});
+
+test("message helper functions extract filenames and captions", () => {
+  const documentMessage = {
+    message_id: 1,
+    caption: "document caption",
+    document: { file_name: "document.mp4" },
+  };
+  const videoMessage = {
+    message_id: 2,
+    caption: "video caption",
+    video: { file_name: "video.mp4" },
+  };
+  const unnamedVideo = {
+    message_id: 3,
+    video: {},
+  };
+
+  assert.equal(getSuggestedFileName(documentMessage as never), "document.mp4");
+  assert.equal(getSuggestedFileName(videoMessage as never), "video.mp4");
+  assert.equal(getSuggestedFileName(unnamedVideo as never), undefined);
+  assert.equal(getDisplayFileName(unnamedVideo as never), "video-3");
+  assert.equal(getCaption(documentMessage as never), "document caption");
+  assert.equal(getCaption(unnamedVideo as never), undefined);
+});
+
+test("progress reporter edits status messages at percent steps and on completion", async () => {
+  const logger = createLoggerSpy();
+  const edits: Array<{ message: string; extra: unknown }> = [];
+  let now = 1_000;
+  mock.method(Date, "now", () => now);
+
+  const reporter = createProgressReporter({
+    editStatus: async (_messageId, message, extra) => {
+      edits.push({ message, extra });
+    },
+    fileName: "movie.mp4",
+    logger,
+    messageId: 10,
+    statusMessageId: 99,
+    getStatusMarkup: () => createDeleteButtonReplyMarkup("token"),
+  });
+
+  reporter.report({ downloadedBytes: 12, totalBytes: 100, percent: 12 });
+  now = 2_000;
+  reporter.report({ downloadedBytes: 13, totalBytes: 100, percent: 13 });
+  reporter.report({ downloadedBytes: 16, totalBytes: 100, percent: 16 });
+  await reporter.complete({ outputPath: "/tmp/movie.mp4", bytes: 100 }, async () => ({ message_id: 1 }));
+
+  assert.deepEqual(edits, [
+    {
+      message: "Downloading movie.mp4: 12% (12 B of 100 B)",
+      extra: createDeleteButtonReplyMarkup("token"),
+    },
+    {
+      message: "Downloading movie.mp4: 16% (16 B of 100 B)",
+      extra: createDeleteButtonReplyMarkup("token"),
+    },
+    {
+      message: "Saved movie.mp4 to /tmp/movie.mp4 (100 B)",
+      extra: createDeleteButtonReplyMarkup("token"),
+    },
+  ]);
+});
+
+test("progress reporter can refresh the active status with delete markup", async () => {
+  const edits: Array<{ message: string; extra: unknown }> = [];
+  const reporter = createProgressReporter({
+    editStatus: async (_messageId, message, extra) => {
+      edits.push({ message, extra });
+    },
+    fileName: "movie.mp4",
+    logger: createLoggerSpy(),
+    messageId: 10,
+    statusMessageId: 99,
+    getStatusMarkup: () => createDeleteButtonReplyMarkup("token"),
+  });
+
+  await reporter.refresh();
+
+  assert.deepEqual(edits, [
+    {
+      message: "Download started: movie.mp4",
+      extra: createDeleteButtonReplyMarkup("token"),
+    },
+  ]);
+});
+
+test("progress reporter stops editing after the file has been deleted", async () => {
+  const edits: string[] = [];
+  let deleted = false;
+  const reporter = createProgressReporter({
+    editStatus: async (_messageId, message) => {
+      edits.push(message);
+    },
+    fileName: "movie.mp4",
+    logger: createLoggerSpy(),
+    messageId: 10,
+    statusMessageId: 99,
+    isDeleted: () => deleted,
+  });
+
+  reporter.report({ downloadedBytes: 50, totalBytes: 100, percent: 50 });
+  deleted = true;
+  reporter.report({ downloadedBytes: 100, totalBytes: 100, percent: 100 });
+  await reporter.complete({ outputPath: "/tmp/movie.mp4", bytes: 100 }, async () => ({ message_id: 1 }));
+
+  assert.deepEqual(edits, ["Downloading movie.mp4: 50% (50 B of 100 B)"]);
+});
+
+test("progress reporter throttles byte-only updates by time interval", async () => {
+  const logger = createLoggerSpy();
+  const edits: string[] = [];
+  let now = 5_000;
+  mock.method(Date, "now", () => now);
+
+  const reporter = createProgressReporter({
+    editStatus: async (_messageId, message) => {
+      edits.push(message);
+    },
+    fileName: "movie.mp4",
+    logger,
+    messageId: 10,
+    statusMessageId: 99,
+  });
+
+  reporter.report({ downloadedBytes: 1024 });
+  now = 6_000;
+  reporter.report({ downloadedBytes: 2048 });
+  now = 8_500;
+  reporter.report({ downloadedBytes: 4096 });
+  await reporter.fail(async () => ({ message_id: 1 }));
+
+  assert.deepEqual(edits, [
+    "Downloading movie.mp4: 1.00 KB downloaded",
+    "Downloading movie.mp4: 4.00 KB downloaded",
+    "Failed to download movie.mp4. Check the logs for details.",
+  ]);
+});
+
+test("progress reporter sends standalone replies when no status message exists", async () => {
+  const replies: string[] = [];
+  const reporter = createProgressReporter({
+    editStatus: async () => {
+      throw new Error("should not edit without a status message");
+    },
+    fileName: "movie.mp4",
+    logger: createLoggerSpy(),
+    messageId: 10,
+  });
+
+  await reporter.complete({ outputPath: "/tmp/movie.mp4", bytes: undefined }, async (message) => {
+    replies.push(message);
+    return { message_id: 1 };
+  });
+  await reporter.fail(async (message) => {
+    replies.push(message);
+    return { message_id: 2 };
+  });
+
+  assert.deepEqual(replies, [
+    "Saved movie.mp4 to /tmp/movie.mp4 (unknown size)",
+    "Failed to download movie.mp4. Check the logs for details.",
+  ]);
+});
+
+test("progress reporter logs edit and standalone reply failures", async () => {
+  const logger = createLoggerSpy();
+  const reporterWithStatus = createProgressReporter({
+    editStatus: async () => {
+      throw new Error("edit failed");
+    },
+    fileName: "movie.mp4",
+    logger,
+    messageId: 10,
+    statusMessageId: 99,
+  });
+  const reporterWithoutStatus = createProgressReporter({
+    editStatus: async () => {},
+    fileName: "clip.mp4",
+    logger,
+    messageId: 11,
+  });
+
+  reporterWithStatus.report({ downloadedBytes: 50, totalBytes: 100, percent: 50 });
+  await reporterWithStatus.complete({ outputPath: "/tmp/movie.mp4", bytes: 100 }, async () => ({ message_id: 1 }));
+  await reporterWithoutStatus.fail(async () => {
+    throw new Error("reply failed");
+  });
+
+  assert.equal(logger.entries.filter((entry) => entry.message.includes("Failed to edit Telegram progress message")).length, 2);
+  assert.equal(logger.entries.filter((entry) => entry.message.includes("Failed to send Telegram reply")).length, 1);
+});
+
+test("confirming delete aborts the active download and suppresses failed status", async () => {
+  await withTempDir(async (dir) => {
+    const logger = createLoggerSpy();
+    const outputPath = path.join(dir, "Film", "movie.mp4");
+    const edits: Array<{ message: string; extra?: DeleteButtonReplyMarkup }> = [];
+    const callbackAnswers: string[] = [];
+    let capturedSignal: AbortSignal | undefined;
+    let resolveOutputRegistered: () => void = () => {};
+    const outputRegistered = new Promise<void>((resolve) => {
+      resolveOutputRegistered = resolve;
+    });
+    const fakeDownloader = {
+      async downloadFromBotMessage(request: DownloadRequest) {
+        capturedSignal = request.signal;
+        await mkdir(path.dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, "partial", "utf8");
+        await request.onOutputPath?.(outputPath);
+        resolveOutputRegistered();
+
+        await new Promise<never>((_resolve, reject) => {
+          request.signal?.addEventListener("abort", () => reject(new DownloadCanceledError()), { once: true });
+        });
+      },
+    };
+    const service = new BotService(
+      createSettings({
+        download: {
+          directory: dir,
+        },
+      }),
+      fakeDownloader as never,
+      logger,
+    );
+    const downloadAndNotify = (
+      service as unknown as {
+        downloadAndNotify: (
+          message: unknown,
+          chatId: number,
+          reply: (message: string) => Promise<{ message_id?: number }>,
+          editStatus: (messageId: number, message: string, extra?: DeleteButtonReplyMarkup) => Promise<unknown>,
+          statusMessageId: number,
+        ) => Promise<void>;
+      }
+    ).downloadAndNotify.bind(service);
+    const handleDeleteButton = (
+      service as unknown as {
+        handleDeleteButton: (ctx: unknown) => Promise<void>;
+      }
+    ).handleDeleteButton.bind(service);
+
+    const downloadPromise = downloadAndNotify(
+      {
+        message_id: 10,
+        date: 1_000,
+        video: { file_name: "movie.mp4" },
+      },
+      1234,
+      async () => ({ message_id: 1 }),
+      async (_messageId, message, extra) => {
+        edits.push({ message, extra });
+      },
+      99,
+    );
+
+    await outputRegistered;
+
+    const deleteCallbackData = edits
+      .flatMap((edit) => edit.extra?.reply_markup.inline_keyboard[0] ?? [])
+      .find((button) => button.text === "Delete file")?.callback_data;
+    const deleteCallback = parseDeleteCallbackData(deleteCallbackData);
+
+    assert.equal(deleteCallback?.action, "ask");
+    assert.equal(capturedSignal?.aborted, false);
+
+    await handleDeleteButton({
+      from: { id: 1234 },
+      callbackQuery: {
+        data: `file-delete:confirm:${deleteCallback?.token}`,
+        message: {
+          message_id: 99,
+          chat: { id: 1234 },
+          text: "Downloading movie.mp4: 10% (1 B of 10 B)",
+        },
+      },
+      telegram: {
+        editMessageText: async (_chatId: number, _messageId: number, _inlineMessageId: undefined, message: string) => {
+          edits.push({ message });
+        },
+      },
+      answerCbQuery: async (message: string) => {
+        callbackAnswers.push(message);
+      },
+    });
+    await downloadPromise;
+
+    assert.equal(capturedSignal?.aborted, true);
+    await assert.rejects(stat(outputPath));
+    assert.equal(callbackAnswers.at(-1), "File deleted.");
+    assert.match(edits.at(-1)?.message ?? "", /Deleted file:/);
+    assert.equal(edits.some((edit) => edit.message.includes("Failed to download")), false);
+    assert.equal(logger.entries.some((entry) => entry.level === "error"), false);
+  });
+});
+
+test("/files command replies with private message for unauthorized users", async () => {
+  await withTempDir(async (dir) => {
+    const service = new BotService(
+      createSettings({
+        download: {
+          directory: dir,
+        },
+      }),
+      {} as never,
+      createLoggerSpy(),
+    );
+    const handleFilesCommand = (
+      service as unknown as {
+        handleFilesCommand: (ctx: unknown) => Promise<void>;
+      }
+    ).handleFilesCommand.bind(service);
+    const replies: string[] = [];
+
+    await handleFilesCommand({
+      from: { id: 999 },
+      reply: async (message: string) => {
+        replies.push(message);
+        return { message_id: 99 };
+      },
+    });
+
+    assert.deepEqual(replies, ["This bot is private."]);
+  });
+});
+
+test("/files command replies with the download tree for authorized users", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(path.join(dir, "Film"), { recursive: true });
+    await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
+
+    const service = new BotService(
+      createSettings({
+        download: {
+          directory: dir,
+        },
+      }),
+      {} as never,
+      createLoggerSpy(),
+    );
+    const handleFilesCommand = (
+      service as unknown as {
+        handleFilesCommand: (ctx: unknown) => Promise<void>;
+      }
+    ).handleFilesCommand.bind(service);
+    const replies: Array<{ message: string; extra?: unknown }> = [];
+
+    await handleFilesCommand({
+      from: { id: 1234 },
+      reply: async (message: string, extra?: unknown) => {
+        replies.push({ message, extra });
+        return { message_id: 99 };
+      },
+    });
+
+    assert.equal(replies.length, 1);
+    assert.match(replies[0].message, /Files in \//);
+    assert.match(replies[0].message, /Folder Film\/ \[protected\]/);
+    assert.match(replies[0].message, /File loose\.mp4/);
+    assert.ok(replies[0].extra);
+  });
+});
+
+test("file tree confirmation callback deletes the selected file and refreshes the parent directory", async () => {
+  await withTempDir(async (dir) => {
+    const filePath = path.join(dir, "loose.mp4");
+    const edits: Array<{ message: string; extra?: unknown }> = [];
+    const callbackAnswers: string[] = [];
+
+    await writeFile(filePath, "video", "utf8");
+
+    const service = new BotService(
+      createSettings({
+        download: {
+          directory: dir,
+        },
+      }),
+      {} as never,
+      createLoggerSpy(),
+    );
+    const fileTree = (
+      service as unknown as {
+        fileTree: FileTreeBrowser;
+      }
+    ).fileTree;
+    const handleFileTreeButton = (
+      service as unknown as {
+        handleFileTreeButton: (ctx: unknown) => Promise<void>;
+      }
+    ).handleFileTreeButton.bind(service);
+    const rootView = await fileTree.renderRoot();
+    const fileButton = rootView.extra.reply_markup.inline_keyboard.flat().find((button) => button.text === "File loose.mp4");
+
+    assert.ok(fileButton);
+    assert.ok("callback_data" in fileButton);
+
+    const fileCallback = fileTree.parseCallbackData(fileButton.callback_data);
+
+    assert.ok(fileCallback);
+    assert.equal(fileCallback?.action, "select");
+
+    await handleFileTreeButton({
+      from: { id: 1234 },
+      callbackQuery: {
+        data: `file-tree:confirm:${fileCallback.token}`,
+        message: {
+          message_id: 99,
+          chat: { id: 1234 },
+          text: "Selected file: loose.mp4",
+        },
+      },
+      telegram: {
+        editMessageText: async (_chatId: number, _messageId: number, _inlineMessageId: undefined, message: string, extra?: unknown) => {
+          edits.push({ message, extra });
+        },
+      },
+      answerCbQuery: async (message: string) => {
+        callbackAnswers.push(message);
+      },
+    });
+
+    await assert.rejects(stat(filePath));
+    assert.equal(callbackAnswers.at(-1), "Item deleted.");
+    assert.match(edits.at(-1)?.message ?? "", /Deleted: loose\.mp4/);
+    assert.match(edits.at(-1)?.message ?? "", /Files in \//);
+  });
+});
+

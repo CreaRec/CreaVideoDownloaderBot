@@ -1,14 +1,28 @@
 import { Telegraf } from "telegraf";
+import type { Context } from "telegraf";
 import type { Message } from "telegraf/types";
-import type { DownloadProgress, DownloadResult } from "./downloader.js";
+import {
+  createDeleteButtonReplyMarkup,
+  createDeleteConfirmationReplyMarkup,
+  createDeleteConfirmationStatusMessage,
+  createDeleteFailedStatusMessage,
+  createDeletedStatusMessage,
+  deleteDownloadedFile,
+  DeleteButtonState,
+  parseDeleteCallbackData,
+  type DeleteButtonReplyMarkup,
+} from "./delete-buttons.js";
+import { isDownloadCanceled, type DownloadProgress, type DownloadResult } from "./downloader.js";
 import type { TelegramDownloader } from "./downloader.js";
+import { FileTreeBrowser } from "./file-tree.js";
 import type { Logger } from "./logger.js";
 import type { Settings } from "./settings.js";
 
 type DownloadableMessage = Message.VideoMessage | Message.DocumentMessage;
 type TelegramStatusMessage = { message_id?: number };
 type ReplyFn = (message: string) => Promise<TelegramStatusMessage>;
-type EditStatusFn = (messageId: number, message: string) => Promise<unknown>;
+type EditStatusFn = (messageId: number, message: string, extra?: DeleteButtonReplyMarkup) => Promise<unknown>;
+type CallbackMessage = { message_id: number; chat: { id: number }; text?: string };
 
 const PROGRESS_PERCENT_STEP = 5;
 const PROGRESS_MIN_INTERVAL_MS = 3_000;
@@ -16,6 +30,9 @@ const PROGRESS_MIN_INTERVAL_MS = 3_000;
 export class BotService {
   private readonly bot: Telegraf;
   private readonly allowedUserIds: Set<number>;
+  private readonly deleteButtons: DeleteButtonState;
+  private readonly fileTree: FileTreeBrowser;
+  private readonly activeDownloadsByDeleteToken = new Map<string, AbortController>();
 
   constructor(
     private readonly settings: Settings,
@@ -24,6 +41,8 @@ export class BotService {
   ) {
     this.bot = new Telegraf(settings.telegram.botToken);
     this.allowedUserIds = new Set(settings.telegram.allowedUserIds);
+    this.deleteButtons = DeleteButtonState.forDownloadDirectory(settings.download.directory);
+    this.fileTree = new FileTreeBrowser(settings.download.directory);
     this.registerHandlers();
   }
 
@@ -47,12 +66,17 @@ export class BotService {
       await ctx.reply("Send or forward a video/document here and I will download it to the configured directory.");
     });
 
+    this.bot.command("files", async (ctx) => {
+      await this.handleFilesCommand(ctx);
+    });
+
     this.bot.on("video", async (ctx) => {
       await this.handleDownloadableMessage(
         ctx.from?.id,
         ctx.message,
+        ctx.message.chat.id,
         (message) => ctx.reply(message),
-        (messageId, message) => ctx.telegram.editMessageText(ctx.message.chat.id, messageId, undefined, message),
+        (messageId, message, extra) => ctx.telegram.editMessageText(ctx.message.chat.id, messageId, undefined, message, extra),
       );
     });
 
@@ -60,14 +84,25 @@ export class BotService {
       await this.handleDownloadableMessage(
         ctx.from?.id,
         ctx.message,
+        ctx.message.chat.id,
         (message) => ctx.reply(message),
-        (messageId, message) => ctx.telegram.editMessageText(ctx.message.chat.id, messageId, undefined, message),
+        (messageId, message, extra) => ctx.telegram.editMessageText(ctx.message.chat.id, messageId, undefined, message, extra),
       );
+    });
+
+    this.bot.action(/^file-delete:/, async (ctx) => {
+      await this.handleDeleteButton(ctx);
+    });
+
+    this.bot.action(/^file-tree:/, async (ctx) => {
+      await this.handleFileTreeButton(ctx);
     });
 
     this.bot.on("message", async (ctx) => {
       if (this.isAllowed(ctx.from?.id)) {
-        await ctx.reply("I can download Telegram videos and document-style video files. Send one here to start.");
+        await ctx.reply(
+          "I can download Telegram videos and document-style video files. Send one here to start, or use /files to browse downloaded files.",
+        );
       }
     });
 
@@ -79,6 +114,7 @@ export class BotService {
   private async handleDownloadableMessage(
     fromUserId: number | undefined,
     message: DownloadableMessage,
+    chatId: number,
     reply: ReplyFn,
     editStatus: EditStatusFn,
   ): Promise<void> {
@@ -89,22 +125,33 @@ export class BotService {
 
     const fileName = getDisplayFileName(message);
     const statusMessage = await this.safeReply(reply, `Download started: ${fileName}`);
-    void this.downloadAndNotify(message, reply, editStatus, statusMessage?.message_id);
+    void this.downloadAndNotify(message, chatId, reply, editStatus, statusMessage?.message_id);
   }
 
   private async downloadAndNotify(
     message: DownloadableMessage,
+    chatId: number,
     reply: ReplyFn,
     editStatus: EditStatusFn,
     statusMessageId: number | undefined,
   ): Promise<void> {
     const fileName = getDisplayFileName(message);
+    let deleteToken: string | undefined;
+    const abortController = new AbortController();
     const progressReporter = createProgressReporter({
       editStatus,
       fileName,
       logger: this.logger,
       messageId: message.message_id,
       statusMessageId,
+      getStatusMarkup: () => {
+        if (!deleteToken || this.deleteButtons.getCached(deleteToken)?.deletedAt) {
+          return undefined;
+        }
+
+        return createDeleteButtonReplyMarkup(deleteToken);
+      },
+      isDeleted: () => (deleteToken ? this.deleteButtons.getCached(deleteToken)?.deletedAt !== undefined : false),
     });
 
     try {
@@ -115,6 +162,22 @@ export class BotService {
         suggestedFileName,
         receivedAt: message.date,
         caption: getCaption(message),
+        signal: abortController.signal,
+        onOutputPath: async (outputPath) => {
+          if (!statusMessageId) {
+            return;
+          }
+
+          const record = await this.deleteButtons.upsertForStatus({
+            chatId,
+            messageId: statusMessageId,
+            filePath: outputPath,
+            originalText: progressReporter.getLastMessage(),
+          });
+          deleteToken = record.token;
+          this.activeDownloadsByDeleteToken.set(record.token, abortController);
+          await progressReporter.refresh();
+        },
         onProgress: progressReporter.report,
       });
 
@@ -123,8 +186,167 @@ export class BotService {
       });
       await progressReporter.complete(result, reply);
     } catch (error) {
+      if (isDownloadCanceled(error)) {
+        this.logger.info(`Canceled Telegram download for message ${message.message_id}.`);
+        return;
+      }
+
       this.logger.error(`Failed to download Telegram message ${message.message_id}.`, error);
       await progressReporter.fail(reply);
+    } finally {
+      if (deleteToken && this.activeDownloadsByDeleteToken.get(deleteToken) === abortController) {
+        this.activeDownloadsByDeleteToken.delete(deleteToken);
+      }
+    }
+  }
+
+  private async handleDeleteButton(ctx: Context): Promise<void> {
+    if (!this.isAllowed(ctx.from?.id)) {
+      await this.answerCallback(ctx, "This bot is private.");
+      return;
+    }
+
+    const data = "callbackQuery" in ctx && ctx.callbackQuery && "data" in ctx.callbackQuery ? ctx.callbackQuery.data : undefined;
+    const callback = parseDeleteCallbackData(data);
+
+    if (!callback) {
+      await this.answerCallback(ctx, "Unknown delete action.");
+      return;
+    }
+
+    const record = await this.deleteButtons.get(callback.token);
+
+    if (!record) {
+      await this.answerCallback(ctx, "Delete action is no longer available.");
+      return;
+    }
+
+    const message = getCallbackMessage(ctx);
+
+    if (!message || message.chat.id !== record.chatId || message.message_id !== record.messageId) {
+      await this.answerCallback(ctx, "Delete action does not match this message.");
+      return;
+    }
+
+    const originalText = message.text && !message.text.includes("\n\nDelete this downloaded file?") ? message.text : record.originalText;
+    await this.deleteButtons.updateOriginalText(record.token, originalText);
+
+    if (callback.action === "ask") {
+      await ctx.telegram.editMessageText(
+        record.chatId,
+        record.messageId,
+        undefined,
+        createDeleteConfirmationStatusMessage(originalText),
+        createDeleteConfirmationReplyMarkup(record.token),
+      );
+      await this.answerCallback(ctx, "Confirm deletion.");
+      return;
+    }
+
+    if (callback.action === "cancel") {
+      await ctx.telegram.editMessageText(
+        record.chatId,
+        record.messageId,
+        undefined,
+        originalText,
+        createDeleteButtonReplyMarkup(record.token),
+      );
+      await this.answerCallback(ctx, "Deletion cancelled.");
+      return;
+    }
+
+    try {
+      this.activeDownloadsByDeleteToken.get(record.token)?.abort();
+      const outcome = await deleteDownloadedFile(record.filePath, this.settings.download.directory);
+      await this.deleteButtons.markDeleted(record.token);
+      await ctx.telegram.editMessageText(
+        record.chatId,
+        record.messageId,
+        undefined,
+        createDeletedStatusMessage(originalText, record.filePath),
+      );
+      await this.answerCallback(ctx, outcome === "missing" ? "File was already missing." : "File deleted.");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to delete downloaded file ${record.filePath}.`, error);
+      await ctx.telegram.editMessageText(
+        record.chatId,
+        record.messageId,
+        undefined,
+        createDeleteFailedStatusMessage(originalText, record.filePath, reason),
+        createDeleteButtonReplyMarkup(record.token),
+      );
+      await this.answerCallback(ctx, "Could not delete file.");
+    }
+  }
+
+  private async handleFilesCommand(ctx: Context): Promise<void> {
+    if (!this.isAllowed(ctx.from?.id)) {
+      await ctx.reply("This bot is private.");
+      return;
+    }
+
+    const view = await this.fileTree.renderRoot();
+    await ctx.reply(view.message, view.extra);
+  }
+
+  private async handleFileTreeButton(ctx: Context): Promise<void> {
+    if (!this.isAllowed(ctx.from?.id)) {
+      await this.answerCallback(ctx, "This bot is private.");
+      return;
+    }
+
+    const data = "callbackQuery" in ctx && ctx.callbackQuery && "data" in ctx.callbackQuery ? ctx.callbackQuery.data : undefined;
+    const callback = this.fileTree.parseCallbackData(data);
+
+    if (!callback) {
+      await this.answerCallback(ctx, "Unknown file action.");
+      return;
+    }
+
+    const message = getCallbackMessage(ctx);
+
+    if (!message) {
+      await this.answerCallback(ctx, "Could not update file tree.");
+      return;
+    }
+
+    try {
+      if (callback.action === "confirm") {
+        const relativePath = this.fileTree.getRelativePathForToken(callback.token);
+        const parentToken = this.fileTree.getParentToken(callback.token);
+        const outcome = await this.fileTree.deleteToken(callback.token);
+
+        if (outcome === "protected") {
+          await this.answerCallback(ctx, "This item cannot be deleted.");
+          return;
+        }
+
+        const view = await this.fileTree.renderDirectoryToken(parentToken);
+        await ctx.telegram.editMessageText(
+          message.chat.id,
+          message.message_id,
+          undefined,
+          `${outcome === "missing" ? "Item was already missing" : "Deleted"}: ${relativePath}\n\n${view.message}`,
+          view.extra,
+        );
+        await this.answerCallback(ctx, outcome === "missing" ? "Item was already missing." : "Item deleted.");
+        return;
+      }
+
+      const view =
+        callback.action === "open" || callback.action === "refresh"
+          ? await this.fileTree.renderDirectoryToken(callback.token)
+          : callback.action === "delete"
+            ? await this.fileTree.renderDeleteConfirmationToken(callback.token)
+            : await this.fileTree.renderSelectedToken(callback.token);
+
+      await ctx.telegram.editMessageText(message.chat.id, message.message_id, undefined, view.message, view.extra);
+      await this.answerCallback(ctx, callback.action === "delete" ? "Confirm deletion." : "File tree updated.");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn("Failed to handle file tree action.", error);
+      await this.answerCallback(ctx, reason);
     }
   }
 
@@ -140,6 +362,14 @@ export class BotService {
       return undefined;
     }
   }
+
+  private async answerCallback(ctx: Context, message: string): Promise<void> {
+    try {
+      await ctx.answerCbQuery(message);
+    } catch (error) {
+      this.logger.warn("Failed to answer Telegram callback query.", error);
+    }
+  }
 }
 
 interface ProgressReporterOptions {
@@ -148,25 +378,31 @@ interface ProgressReporterOptions {
   logger: Logger;
   messageId: number;
   statusMessageId?: number;
+  getStatusMarkup?: () => DeleteButtonReplyMarkup | undefined;
+  isDeleted?: () => boolean;
 }
 
-function createProgressReporter(options: ProgressReporterOptions): {
+export function createProgressReporter(options: ProgressReporterOptions): {
   report: (progress: DownloadProgress) => void;
   complete: (result: DownloadResult, reply: ReplyFn) => Promise<void>;
   fail: (reply: ReplyFn) => Promise<void>;
+  refresh: () => Promise<void>;
+  getLastMessage: () => string;
 } {
   let lastPercent = -1;
   let lastUpdateAt = 0;
   let editQueue = Promise.resolve();
+  let lastMessage = `Download started: ${options.fileName}`;
 
   const sendStatus = (message: string): void => {
-    if (!options.statusMessageId) {
+    if (!options.statusMessageId || options.isDeleted?.()) {
       return;
     }
 
+    lastMessage = message;
     editQueue = editQueue
       .then(async () => {
-        await options.editStatus(options.statusMessageId as number, message);
+        await options.editStatus(options.statusMessageId as number, message, options.getStatusMarkup?.());
       })
       .catch((error: unknown) => {
         options.logger.warn("Failed to edit Telegram progress message.", error);
@@ -205,6 +441,11 @@ function createProgressReporter(options: ProgressReporterOptions): {
   const complete = async (result: DownloadResult, reply: ReplyFn): Promise<void> => {
     const message = `Saved ${options.fileName} to ${result.outputPath} (${formatBytes(result.bytes)})`;
 
+    if (options.isDeleted?.()) {
+      await editQueue;
+      return;
+    }
+
     if (options.statusMessageId) {
       sendStatus(message);
       await editQueue;
@@ -217,6 +458,11 @@ function createProgressReporter(options: ProgressReporterOptions): {
   const fail = async (reply: ReplyFn): Promise<void> => {
     const message = `Failed to download ${options.fileName}. Check the logs for details.`;
 
+    if (options.isDeleted?.()) {
+      await editQueue;
+      return;
+    }
+
     if (options.statusMessageId) {
       sendStatus(message);
       await editQueue;
@@ -226,7 +472,38 @@ function createProgressReporter(options: ProgressReporterOptions): {
     await safeStandaloneReply(reply, options.logger, message);
   };
 
-  return { report, complete, fail };
+  const refresh = async (): Promise<void> => {
+    sendStatus(lastMessage);
+    await editQueue;
+  };
+
+  return { report, complete, fail, refresh, getLastMessage: () => lastMessage };
+}
+
+function getCallbackMessage(ctx: Context): CallbackMessage | undefined {
+  const callbackQuery = "callbackQuery" in ctx ? ctx.callbackQuery : undefined;
+
+  if (!callbackQuery || !("message" in callbackQuery) || !callbackQuery.message) {
+    return undefined;
+  }
+
+  const message = callbackQuery.message;
+
+  if (!("message_id" in message) || !("chat" in message) || typeof message.message_id !== "number") {
+    return undefined;
+  }
+
+  const chat = message.chat;
+
+  if (!("id" in chat) || typeof chat.id !== "number") {
+    return undefined;
+  }
+
+  return {
+    message_id: message.message_id,
+    chat: { id: chat.id },
+    text: "text" in message && typeof message.text === "string" ? message.text : undefined,
+  };
 }
 
 async function safeStandaloneReply(reply: ReplyFn, logger: Logger, message: string): Promise<void> {
@@ -237,7 +514,7 @@ async function safeStandaloneReply(reply: ReplyFn, logger: Logger, message: stri
   }
 }
 
-function formatBytes(bytes: number | undefined): string {
+export function formatBytes(bytes: number | undefined): string {
   if (bytes === undefined || !Number.isFinite(bytes)) {
     return "unknown size";
   }
@@ -258,7 +535,7 @@ function formatBytes(bytes: number | undefined): string {
   return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
 }
 
-function getSuggestedFileName(message: DownloadableMessage): string | undefined {
+export function getSuggestedFileName(message: DownloadableMessage): string | undefined {
   if ("document" in message && message.document.file_name) {
     return message.document.file_name;
   }
@@ -270,11 +547,11 @@ function getSuggestedFileName(message: DownloadableMessage): string | undefined 
   return undefined;
 }
 
-function getDisplayFileName(message: DownloadableMessage): string {
+export function getDisplayFileName(message: DownloadableMessage): string {
   return getSuggestedFileName(message) ?? `${"video" in message ? "video" : "document"}-${message.message_id}`;
 }
 
-function getCaption(message: DownloadableMessage): string | undefined {
+export function getCaption(message: DownloadableMessage): string | undefined {
   if ("caption" in message) {
     return message.caption;
   }

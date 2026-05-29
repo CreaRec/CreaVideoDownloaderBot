@@ -12,6 +12,8 @@ export interface DownloadRequest {
   mediaKind: "video" | "document";
   receivedAt?: number;
   caption?: string;
+  signal?: AbortSignal;
+  onOutputPath?: (outputPath: string) => void | Promise<void>;
   onProgress?: (progress: DownloadProgress) => void;
 }
 
@@ -24,6 +26,17 @@ export interface DownloadProgress {
   downloadedBytes: number;
   totalBytes?: number;
   percent?: number;
+}
+
+export class DownloadCanceledError extends Error {
+  constructor() {
+    super("Telegram download was canceled.");
+    this.name = "DownloadCanceledError";
+  }
+}
+
+export function isDownloadCanceled(error: unknown): error is DownloadCanceledError {
+  return error instanceof DownloadCanceledError;
 }
 
 export class TelegramDownloader {
@@ -64,21 +77,31 @@ export class TelegramDownloader {
       throw new Error("Downloader has not been started.");
     }
 
+    throwIfDownloadCanceled(request.signal);
+
     const message = await this.getDownloadableBotMessage(request);
 
     if (!hasDownloadableMedia(message)) {
       throw new Error(`Telegram message ${request.botMessageId} does not contain downloadable media.`);
     }
 
+    throwIfDownloadCanceled(request.signal);
+
     const outputPath = await this.buildOutputPath(request);
     this.logger.info(`Downloading Telegram message ${request.botMessageId} to ${outputPath}`);
+    await request.onOutputPath?.(outputPath);
+    throwIfDownloadCanceled(request.signal);
 
     await this.client.downloadMedia(message as never, {
       outputFile: outputPath,
       progressCallback: (downloaded: unknown, total: unknown) => {
+        throwIfDownloadCanceled(request.signal);
         request.onProgress?.(toDownloadProgress(downloaded, total));
+        throwIfDownloadCanceled(request.signal);
       },
     } as never);
+
+    throwIfDownloadCanceled(request.signal);
 
     const fileStat = await stat(outputPath);
 
@@ -268,6 +291,12 @@ function toByteCount(value: unknown): number | undefined {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function throwIfDownloadCanceled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new DownloadCanceledError();
+  }
 }
 
 function sanitizeFileName(fileName: string): string {
