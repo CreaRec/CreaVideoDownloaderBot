@@ -16,6 +16,7 @@ import { isDownloadCanceled, type DownloadProgress, type DownloadResult } from "
 import type { TelegramDownloader } from "./downloader.js";
 import { FileTreeBrowser } from "./file-tree.js";
 import type { Logger } from "./logger.js";
+import { OpenAIUsageService, type OpenAIUsageReporter } from "./openai-usage.js";
 import type { Settings } from "./settings.js";
 
 type DownloadableMessage = Message.VideoMessage | Message.DocumentMessage;
@@ -38,6 +39,7 @@ export class BotService {
     private readonly settings: Settings,
     private readonly downloader: TelegramDownloader,
     private readonly logger: Logger,
+    private readonly openAIUsage: OpenAIUsageReporter = new OpenAIUsageService(settings, logger),
   ) {
     this.bot = new Telegraf(settings.telegram.botToken);
     this.allowedUserIds = new Set(settings.telegram.allowedUserIds);
@@ -68,6 +70,10 @@ export class BotService {
 
     this.bot.command("files", async (ctx) => {
       await this.handleFilesCommand(ctx);
+    });
+
+    this.bot.command("usage", async (ctx) => {
+      await this.handleUsageCommand(ctx);
     });
 
     this.bot.on("video", async (ctx) => {
@@ -101,7 +107,7 @@ export class BotService {
     this.bot.on("message", async (ctx) => {
       if (this.isAllowed(ctx.from?.id)) {
         await ctx.reply(
-          "I can download Telegram videos and document-style video files. Send one here to start, or use /files to browse downloaded files.",
+          "I can download Telegram videos and document-style video files. Send one here to start, use /files to browse downloaded files, or use /usage for OpenAI usage.",
         );
       }
     });
@@ -288,6 +294,15 @@ export class BotService {
 
     const view = await this.fileTree.renderRoot();
     await ctx.reply(view.message, view.extra);
+  }
+
+  private async handleUsageCommand(ctx: Context): Promise<void> {
+    if (!this.isAllowed(ctx.from?.id)) {
+      await ctx.reply("This bot is private.");
+      return;
+    }
+
+    await ctx.reply(await this.openAIUsage.createReport(getCommandArgument(ctx)));
   }
 
   private async handleFileTreeButton(ctx: Context): Promise<void> {
@@ -504,6 +519,16 @@ function getCallbackMessage(ctx: Context): CallbackMessage | undefined {
     chat: { id: chat.id },
     text: "text" in message && typeof message.text === "string" ? message.text : undefined,
   };
+}
+
+function getCommandArgument(ctx: Context): string | undefined {
+  if (!("message" in ctx) || !ctx.message || !("text" in ctx.message) || typeof ctx.message.text !== "string") {
+    return undefined;
+  }
+
+  const [, ...args] = ctx.message.text.trim().split(/\s+/);
+  const argument = args.join(" ").trim();
+  return argument || undefined;
 }
 
 async function safeStandaloneReply(reply: ReplyFn, logger: Logger, message: string): Promise<void> {

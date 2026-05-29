@@ -13,8 +13,10 @@
   },
   "openai": {
     "apiKey": "",
+    "adminApiKey": "",
     "model": "gpt-5.4-mini",
-    "instructionsPath": "config/media-classification-instructions.md"
+    "instructionsPath": "config/media-classification-instructions.md",
+    "usageStartDate": "2026-01-01"
   },
   "app": {
     "logLevel": "info"

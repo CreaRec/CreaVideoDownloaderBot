@@ -20,8 +20,10 @@ export function createSettings(overrides: PartialSettings = {}): Settings {
     },
     openai: {
       apiKey: "",
+      adminApiKey: "",
       model: "gpt-4o-mini",
       instructionsPath: path.join(os.tmpdir(), "telegram-video-instructions.md"),
+      usageStartDate: undefined,
     },
     app: {
       logLevel: "debug",

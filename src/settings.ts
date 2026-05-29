@@ -24,8 +24,10 @@ const settingsSchema = z.object({
   openai: z
     .object({
       apiKey: z.string().optional(),
+      adminApiKey: z.string().optional(),
       model: z.string().min(1).default("gpt-4o-mini"),
       instructionsPath: z.string().min(1).default(path.resolve(projectRoot, "config", "media-classification-instructions.md")),
+      usageStartDate: z.string().optional(),
     })
     .default({
       model: "gpt-4o-mini",
@@ -87,6 +89,7 @@ export async function loadSettings(settingsPath = getSettingsPath()): Promise<Se
     openai: {
       ...parsedSettings.data.openai,
       apiKey: process.env.OPENAI_API_KEY ?? parsedSettings.data.openai.apiKey ?? "",
+      adminApiKey: process.env.OPENAI_ADMIN_API_KEY ?? parsedSettings.data.openai.adminApiKey ?? "",
       instructionsPath: path.resolve(parsedSettings.data.openai.instructionsPath),
     },
   };
@@ -104,6 +107,7 @@ export function redactSettings(settings: Settings): Record<string, unknown> {
     openai: {
       ...settings.openai,
       apiKey: settings.openai.apiKey ? "***" : "",
+      adminApiKey: settings.openai.adminApiKey ? "***" : "",
     },
   };
 }

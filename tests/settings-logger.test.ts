@@ -9,6 +9,7 @@ import { createSettings, withTempDir, writeJson } from "./helpers/test-utils.js"
 afterEach(() => {
   mock.restoreAll();
   delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_ADMIN_API_KEY;
   delete process.env.SETTINGS_PATH;
 });
 
@@ -35,29 +36,33 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
     assert.equal(settings.download.directory, path.resolve("downloads"));
     assert.equal(settings.download.overwriteExisting, false);
     assert.equal(settings.openai.apiKey, "");
+    assert.equal(settings.openai.adminApiKey, "");
     assert.equal(settings.openai.model, "gpt-4o-mini");
     assert.equal(settings.app.logLevel, "info");
     assert.equal(settings.openai.instructionsPath, path.resolve("config/media-classification-instructions.md"));
   });
 });
 
-test("loadSettings lets OPENAI_API_KEY override file configuration", async () => {
+test("loadSettings lets OpenAI environment keys override file configuration", async () => {
   await withTempDir(async (dir) => {
     const settingsPath = path.join(dir, "settings.json");
     const settings = createSettings({
       openai: {
         apiKey: "from-file",
+        adminApiKey: "admin-from-file",
         model: "model",
         instructionsPath: path.join(dir, "instructions.md"),
       },
     });
 
     process.env.OPENAI_API_KEY = "from-env";
+    process.env.OPENAI_ADMIN_API_KEY = "admin-from-env";
     await writeJson(settingsPath, settings);
 
     const loaded = await loadSettings(settingsPath);
 
     assert.equal(loaded.openai.apiKey, "from-env");
+    assert.equal(loaded.openai.adminApiKey, "admin-from-env");
   });
 });
 
@@ -103,6 +108,7 @@ test("redactSettings masks secrets while preserving non-secret values", () => {
       },
       openai: {
         apiKey: "openai-key",
+        adminApiKey: "admin-key",
         model: "model",
         instructionsPath: "/instructions.md",
       },
@@ -113,6 +119,7 @@ test("redactSettings masks secrets while preserving non-secret values", () => {
   assert.equal((redacted.telegram as Record<string, unknown>).botToken, "***");
   assert.equal((redacted.telegram as Record<string, unknown>).stringSession, "***");
   assert.equal((redacted.openai as Record<string, unknown>).apiKey, "***");
+  assert.equal((redacted.openai as Record<string, unknown>).adminApiKey, "***");
   assert.equal((redacted.openai as Record<string, unknown>).model, "model");
 });
 

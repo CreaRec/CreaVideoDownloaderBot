@@ -39,6 +39,9 @@ else
   npm install
 fi
 
+echo "Running tests locally..."
+npm test
+
 echo "Building locally..."
 npm run build
 

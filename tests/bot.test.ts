@@ -391,6 +391,63 @@ test("/files command replies with the download tree for authorized users", async
   });
 });
 
+test("/usage command replies with private message for unauthorized users", async () => {
+  const service = new BotService(createSettings(), {} as never, createLoggerSpy(), {
+    async createReport() {
+      throw new Error("should not fetch usage for unauthorized users");
+    },
+  });
+  const handleUsageCommand = (
+    service as unknown as {
+      handleUsageCommand: (ctx: unknown) => Promise<void>;
+    }
+  ).handleUsageCommand.bind(service);
+  const replies: string[] = [];
+
+  await handleUsageCommand({
+    from: { id: 999 },
+    message: {
+      text: "/usage",
+    },
+    reply: async (message: string) => {
+      replies.push(message);
+      return { message_id: 99 };
+    },
+  });
+
+  assert.deepEqual(replies, ["This bot is private."]);
+});
+
+test("/usage command replies to the requester with OpenAI usage", async () => {
+  let requestedRange: string | undefined;
+  const service = new BotService(createSettings(), {} as never, createLoggerSpy(), {
+    async createReport(rangeArg?: string) {
+      requestedRange = rangeArg;
+      return "OpenAI usage\nTotal requests: 12\nTotal cost: $3.00\nCost per request: $0.2500";
+    },
+  });
+  const handleUsageCommand = (
+    service as unknown as {
+      handleUsageCommand: (ctx: unknown) => Promise<void>;
+    }
+  ).handleUsageCommand.bind(service);
+  const replies: string[] = [];
+
+  await handleUsageCommand({
+    from: { id: 1234 },
+    message: {
+      text: "/usage today",
+    },
+    reply: async (message: string) => {
+      replies.push(message);
+      return { message_id: 99 };
+    },
+  });
+
+  assert.equal(requestedRange, "today");
+  assert.deepEqual(replies, ["OpenAI usage\nTotal requests: 12\nTotal cost: $3.00\nCost per request: $0.2500"]);
+});
+
 test("file tree confirmation callback deletes the selected file and refreshes the parent directory", async () => {
   await withTempDir(async (dir) => {
     const filePath = path.join(dir, "loose.mp4");
