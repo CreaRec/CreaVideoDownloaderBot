@@ -448,6 +448,57 @@ test("/usage command replies to the requester with OpenAI usage", async () => {
   assert.deepEqual(replies, ["OpenAI usage\nTotal requests: 12\nTotal cost: $3.00\nCost per request: $0.2500"]);
 });
 
+test("/restart command replies with private message for unauthorized users", async () => {
+  let restartCount = 0;
+  const service = new BotService(createSettings(), {} as never, createLoggerSpy(), undefined, () => {
+    restartCount += 1;
+  }, 0);
+  const handleRestartCommand = (
+    service as unknown as {
+      handleRestartCommand: (ctx: unknown) => Promise<void>;
+    }
+  ).handleRestartCommand.bind(service);
+  const replies: string[] = [];
+
+  await handleRestartCommand({
+    from: { id: 999 },
+    reply: async (message: string) => {
+      replies.push(message);
+      return { message_id: 99 };
+    },
+  });
+
+  assert.deepEqual(replies, ["This bot is private."]);
+  assert.equal(restartCount, 0);
+});
+
+test("/restart command replies and requests service restart for authorized users", async () => {
+  let restartCount = 0;
+  const logger = createLoggerSpy();
+  const service = new BotService(createSettings(), {} as never, logger, undefined, () => {
+    restartCount += 1;
+  }, 0);
+  const handleRestartCommand = (
+    service as unknown as {
+      handleRestartCommand: (ctx: unknown) => Promise<void>;
+    }
+  ).handleRestartCommand.bind(service);
+  const replies: string[] = [];
+
+  await handleRestartCommand({
+    from: { id: 1234 },
+    reply: async (message: string) => {
+      replies.push(message);
+      return { message_id: 99 };
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.deepEqual(replies, ["Restarting service..."]);
+  assert.equal(restartCount, 1);
+  assert.ok(logger.entries.some((entry) => entry.level === "warn" && entry.message.includes("Restart requested")));
+});
+
 test("file tree confirmation callback deletes the selected file and refreshes the parent directory", async () => {
   await withTempDir(async (dir) => {
     const filePath = path.join(dir, "loose.mp4");

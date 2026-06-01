@@ -15,6 +15,7 @@ It uses two Telegram identities:
 - Uses OpenAI media classification, when configured, to save files into `Film`, `TVShow/<title>/Season_<n>`, or `Undefined`.
 - Provides an inline file browser for downloaded files and folders, including refresh, back navigation, and confirmed deletion.
 - Reports OpenAI usage from Telegram when an OpenAI admin API key is configured.
+- Supports a private `/restart` command for remotely restarting the Debian service.
 
 ## Requirements
 
@@ -70,6 +71,7 @@ Send or forward a video to your bot from an allowed Telegram user. The service w
 - `/usage`: shows OpenAI usage for the configured range, or month-to-date when no `openai.usageStartDate` is set.
 - `/usage today`: shows OpenAI usage for the current UTC day.
 - `/usage month`: shows OpenAI usage for the current UTC month.
+- `/restart`: replies with confirmation, exits the app, and lets systemd restart the service.
 
 Any other message from an allowed user receives a short help response. Messages from users outside `telegram.allowedUserIds` are rejected or ignored.
 

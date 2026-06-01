@@ -34,6 +34,8 @@ sudo systemctl restart telegram-video-downloader
 sudo systemctl status telegram-video-downloader
 ```
 
+You can also restart the service remotely from Telegram by sending `/restart` as an allowed user. The bot replies before exiting, and systemd starts it again automatically.
+
 Enable or disable start at boot:
 
 ```sh

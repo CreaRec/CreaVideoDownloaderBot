@@ -24,9 +24,11 @@ type TelegramStatusMessage = { message_id?: number };
 type ReplyFn = (message: string) => Promise<TelegramStatusMessage>;
 type EditStatusFn = (messageId: number, message: string, extra?: DeleteButtonReplyMarkup) => Promise<unknown>;
 type CallbackMessage = { message_id: number; chat: { id: number }; text?: string };
+type RestartServiceFn = () => void;
 
 const PROGRESS_PERCENT_STEP = 5;
 const PROGRESS_MIN_INTERVAL_MS = 3_000;
+const RESTART_DELAY_MS = 1_000;
 
 export class BotService {
   private readonly bot: Telegraf;
@@ -40,6 +42,8 @@ export class BotService {
     private readonly downloader: TelegramDownloader,
     private readonly logger: Logger,
     private readonly openAIUsage: OpenAIUsageReporter = new OpenAIUsageService(settings, logger),
+    private readonly restartService: RestartServiceFn = defaultRestartService,
+    private readonly restartDelayMs = RESTART_DELAY_MS,
   ) {
     this.bot = new Telegraf(settings.telegram.botToken);
     this.allowedUserIds = new Set(settings.telegram.allowedUserIds);
@@ -76,6 +80,10 @@ export class BotService {
       await this.handleUsageCommand(ctx);
     });
 
+    this.bot.command("restart", async (ctx) => {
+      await this.handleRestartCommand(ctx);
+    });
+
     this.bot.on("video", async (ctx) => {
       await this.handleDownloadableMessage(
         ctx.from?.id,
@@ -107,7 +115,7 @@ export class BotService {
     this.bot.on("message", async (ctx) => {
       if (this.isAllowed(ctx.from?.id)) {
         await ctx.reply(
-          "I can download Telegram videos and document-style video files. Send one here to start, use /files to browse downloaded files, or use /usage for OpenAI usage.",
+          "I can download Telegram videos and document-style video files. Send one here to start, use /files to browse downloaded files, use /usage for OpenAI usage, or use /restart to restart the service.",
         );
       }
     });
@@ -305,6 +313,21 @@ export class BotService {
     await ctx.reply(await this.openAIUsage.createReport(getCommandArgument(ctx)));
   }
 
+  private async handleRestartCommand(ctx: Context): Promise<void> {
+    if (!this.isAllowed(ctx.from?.id)) {
+      await ctx.reply("This bot is private.");
+      return;
+    }
+
+    await ctx.reply("Restarting service...");
+    this.logger.warn(`Restart requested by Telegram user ${ctx.from?.id}.`);
+
+    const timeout = setTimeout(() => {
+      this.restartService();
+    }, this.restartDelayMs);
+    timeout.unref();
+  }
+
   private async handleFileTreeButton(ctx: Context): Promise<void> {
     if (!this.isAllowed(ctx.from?.id)) {
       await this.answerCallback(ctx, "This bot is private.");
@@ -385,6 +408,10 @@ export class BotService {
       this.logger.warn("Failed to answer Telegram callback query.", error);
     }
   }
+}
+
+function defaultRestartService(): void {
+  process.exit(1);
 }
 
 interface ProgressReporterOptions {

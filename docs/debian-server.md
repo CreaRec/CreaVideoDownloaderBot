@@ -94,6 +94,8 @@ sudo systemctl status telegram-video-downloader
 sudo journalctl -u telegram-video-downloader -f
 ```
 
+The installed unit uses `Restart=always`, so the private `/restart` bot command can exit the Node process and systemd will bring it back after `RestartSec`. It also uses `RuntimeMaxSec=24h` to recycle the long-running Telegram client once per day.
+
 ## 7. Updating The Service
 
 ```sh
@@ -154,3 +156,4 @@ For a quick operations reference, see `docs/debian-commands.md`.
 - Keep `/opt/telegram-video-downloader/config/settings.json` readable only by the service user.
 - If you change `download.directory`, update `ReadWritePaths` in `deploy/telegram-video-downloader.service` before copying it to `/etc/systemd/system`.
 - The bot only processes messages from `telegram.allowedUserIds`.
+- The `/restart` command is restricted to `telegram.allowedUserIds` and depends on systemd restarting the process.

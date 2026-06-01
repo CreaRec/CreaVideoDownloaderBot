@@ -258,8 +258,9 @@ WorkingDirectory=${REMOTE_APP_DIR}
 Environment=NODE_ENV=production
 Environment=SETTINGS_PATH=${REMOTE_APP_DIR}/config/settings.json
 ExecStart=/usr/bin/node ${REMOTE_APP_DIR}/dist/index.js
-Restart=on-failure
+Restart=always
 RestartSec=10
+RuntimeMaxSec=24h
 NoNewPrivileges=true
 PrivateTmp=true
 

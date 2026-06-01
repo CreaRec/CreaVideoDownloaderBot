@@ -11,8 +11,9 @@ WorkingDirectory=/opt/telegram-video-downloader
 Environment=NODE_ENV=production
 Environment=SETTINGS_PATH=/opt/telegram-video-downloader/config/settings.json
 ExecStart=/usr/bin/node /opt/telegram-video-downloader/dist/index.js
-Restart=on-failure
+Restart=always
 RestartSec=10
+RuntimeMaxSec=24h
 
 NoNewPrivileges=true
 PrivateTmp=true
