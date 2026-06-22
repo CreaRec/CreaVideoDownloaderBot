@@ -9,7 +9,8 @@
   },
   "download": {
     "directory": "/absolute/path/to/save/videos",
-    "overwriteExisting": false
+    "overwriteExisting": false,
+    "maxConcurrent": 3
   },
   "openai": {
     "apiKey": "",
@@ -19,6 +20,9 @@
     "usageStartDate": "2026-01-01"
   },
   "app": {
-    "logLevel": "info"
+    "logLevel": "info",
+    "statusUpdateMinIntervalMs": 10000,
+    "statusUpdatePercentStep": 10,
+    "statusEditMinGapMs": 300
   }
 }

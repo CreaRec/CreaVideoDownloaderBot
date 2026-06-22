@@ -111,25 +111,35 @@ After editing `config/settings.json`, restart the service so the app reloads the
 sudo systemctl restart telegram-video-downloader
 ```
 
-## No-Clone Scripted Deployment
+## Scripted Deployment
 
 To deploy or update the app without cloning the repository on the server, run this from your local project root:
 
 ```sh
-./scripts/deploy-debian.sh
+./scripts/deploy.sh
 ```
 
-By default, the script uploads to `192.168.1.135` and installs the app at `/home/crearec/crea-video-downloader-bot`. It builds locally, copies a release archive with `scp`, installs Node.js 22 and npm 11.16.0 on the server when needed, installs production dependencies on the server, enables the `telegram-video-downloader` systemd service at boot, and restarts it.
+By default, the script connects to `192.168.1.135`, rsyncs the project to `/home/crearec/crea-video-downloader-bot`, builds on the server, installs the `telegram-video-downloader` systemd unit, and restarts the service. It runs `npm test` locally first and aborts if tests fail.
 
-If `/home/crearec/crea-video-downloader-bot/config/settings.json` already exists on the server, the script preserves it. If it does not exist, the script creates it from `config/settings.example.json` so you can edit it manually.
-
-You can override the defaults when needed:
+Use `--remote` to connect via `crearec.app` instead of the local network IP:
 
 ```sh
-SSH_USER=crearec SERVER_HOST=192.168.1.135 REMOTE_APP_DIR=/home/crearec/crea-video-downloader-bot ./scripts/deploy-debian.sh
+./scripts/deploy.sh --remote
 ```
 
-The deploy script defaults to `NODE_MAJOR_VERSION=22`, `NODE_MIN_VERSION=22.9.0`, and `NPM_VERSION=11.16.0`. Override them only when you have verified the selected npm version supports that Node.js release.
+Override any of: `SERVER_HOST`, `SSH_USER`, `REMOTE_APP_DIR`, `SERVICE_NAME`.
+
+```sh
+SERVER_HOST=192.168.1.135 SSH_USER=crearec REMOTE_APP_DIR=/home/crearec/crea-video-downloader-bot ./scripts/deploy.sh
+```
+
+Set optional `DEPLOY_PASSWORD` in a local `.env` file (or export it) to skip SSH/sudo prompts during deploy; you need `sshpass` installed locally. When `DEPLOY_PASSWORD` is unset, deploy asks for passwords interactively.
+
+The deploy script reuses one SSH connection and one `sudo` session on the server, so you should only be prompted for the server login password once and the sudo password once (if password auth is used). For zero prompts, use SSH keys and passwordless sudo for the deploy user, or `DEPLOY_PASSWORD` with `sshpass`.
+
+The deploy script never overwrites `config/settings.json` on the server. If it is missing, the remote deploy script seeds it from `config/settings.example.json` so you can edit it on the server before the bot can start.
+
+**Server prerequisite:** Node.js 22.9.0 or newer and npm must already be installed on the server (see section 1 above). The deploy script does not install Node.js for you.
 
 ## Service Helper Script
 
@@ -141,6 +151,7 @@ From your local project root, use `scripts/service-debian.sh` to manage the remo
 ./scripts/service-debian.sh status
 ./scripts/service-debian.sh logs
 ./scripts/service-debian.sh stop
+./scripts/service-debian.sh --remote status
 ```
 
 The script defaults to `SERVER_HOST=192.168.1.135`, `SSH_USER=crearec`, and `SERVICE_NAME=telegram-video-downloader`. Override them when needed:
@@ -149,11 +160,13 @@ The script defaults to `SERVER_HOST=192.168.1.135`, `SSH_USER=crearec`, and `SER
 SERVER_HOST=192.168.1.135 SSH_USER=crearec ./scripts/service-debian.sh restart
 ```
 
+Optional `DEPLOY_PASSWORD` in local `.env` (or env) works the same way as in `scripts/deploy.sh`.
+
 For a quick operations reference, see `docs/debian-commands.md`.
 
 ## Notes
 
-- Keep `/opt/telegram-video-downloader/config/settings.json` readable only by the service user.
-- If you change `download.directory`, update `ReadWritePaths` in `deploy/telegram-video-downloader.service` before copying it to `/etc/systemd/system`.
+- Keep `config/settings.json` readable only by the service user.
+- If you change `download.directory`, redeploy so `ReadWritePaths` in the installed systemd unit is updated from `deploy/telegram-video-downloader.service`.
 - The bot only processes messages from `telegram.allowedUserIds`.
 - The `/restart` command is restricted to `telegram.allowedUserIds` and depends on systemd restarting the process.

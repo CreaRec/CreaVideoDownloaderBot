@@ -103,13 +103,14 @@ sudo systemctl restart telegram-video-downloader
 From your local project root:
 
 ```sh
-./scripts/deploy-debian.sh
+./scripts/deploy.sh
+./scripts/deploy.sh --remote
 ```
 
 Override deploy defaults:
 
 ```sh
-SSH_USER=crearec SERVER_HOST=192.168.1.135 REMOTE_APP_DIR=/home/crearec/crea-video-downloader-bot ./scripts/deploy-debian.sh
+SSH_USER=crearec SERVER_HOST=192.168.1.135 REMOTE_APP_DIR=/home/crearec/crea-video-downloader-bot ./scripts/deploy.sh
 ```
 
 ## Troubleshooting

@@ -17,6 +17,7 @@ export function createSettings(overrides: PartialSettings = {}): Settings {
     download: {
       directory: path.join(os.tmpdir(), "telegram-video-tests"),
       overwriteExisting: false,
+      maxConcurrent: 3,
     },
     openai: {
       apiKey: "",
@@ -27,6 +28,9 @@ export function createSettings(overrides: PartialSettings = {}): Settings {
     },
     app: {
       logLevel: "debug",
+      statusUpdateMinIntervalMs: 10_000,
+      statusUpdatePercentStep: 10,
+      statusEditMinGapMs: 300,
     },
   };
 

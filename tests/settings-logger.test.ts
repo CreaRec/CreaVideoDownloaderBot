@@ -35,10 +35,14 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
 
     assert.equal(settings.download.directory, path.resolve("downloads"));
     assert.equal(settings.download.overwriteExisting, false);
+    assert.equal(settings.download.maxConcurrent, 3);
     assert.equal(settings.openai.apiKey, "");
     assert.equal(settings.openai.adminApiKey, "");
     assert.equal(settings.openai.model, "gpt-4o-mini");
     assert.equal(settings.app.logLevel, "info");
+    assert.equal(settings.app.statusUpdateMinIntervalMs, 10_000);
+    assert.equal(settings.app.statusUpdatePercentStep, 10);
+    assert.equal(settings.app.statusEditMinGapMs, 300);
     assert.equal(settings.openai.instructionsPath, path.resolve("config/media-classification-instructions.md"));
   });
 });

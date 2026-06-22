@@ -20,6 +20,7 @@ const settingsSchema = z.object({
   download: z.object({
     directory: z.string().min(1),
     overwriteExisting: z.boolean().default(false),
+    maxConcurrent: z.number().int().positive().default(3),
   }),
   openai: z
     .object({
@@ -36,8 +37,16 @@ const settingsSchema = z.object({
   app: z
     .object({
       logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
+      statusUpdateMinIntervalMs: z.number().int().positive().default(10_000),
+      statusUpdatePercentStep: z.number().int().positive().max(50).default(10),
+      statusEditMinGapMs: z.number().int().nonnegative().default(300),
     })
-    .default({ logLevel: "info" }),
+    .default({
+      logLevel: "info",
+      statusUpdateMinIntervalMs: 10_000,
+      statusUpdatePercentStep: 10,
+      statusEditMinGapMs: 300,
+    }),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;

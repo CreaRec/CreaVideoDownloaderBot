@@ -13,11 +13,26 @@ import {
 import { createDeleteButtonReplyMarkup, parseDeleteCallbackData, type DeleteButtonReplyMarkup } from "../src/delete-buttons.js";
 import { DownloadCanceledError, type DownloadRequest } from "../src/downloader.js";
 import type { FileTreeBrowser } from "../src/file-tree.js";
-import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
+import { DownloadSemaphore } from "../src/download-semaphore.js";
+import { StatusEditScheduler } from "../src/status-edit-scheduler.js";
+import { createLoggerSpy, createSettings, withTempDir, type LoggerSpy } from "./helpers/test-utils.js";
 
 afterEach(() => {
   mock.restoreAll();
 });
+
+function createSchedulerForEdits(
+  edits: Array<{ message: string; extra?: unknown }>,
+  logger: LoggerSpy,
+): StatusEditScheduler {
+  return new StatusEditScheduler(
+    async (_chatId, _messageId, message, extra) => {
+      edits.push({ message, extra });
+    },
+    logger,
+    0,
+  );
+}
 
 test("formatBytes renders unknown, byte, and larger values", () => {
   assert.equal(formatBytes(undefined), "unknown size");
@@ -57,23 +72,28 @@ test("progress reporter edits status messages at percent steps and on completion
   const edits: Array<{ message: string; extra: unknown }> = [];
   let now = 1_000;
   mock.method(Date, "now", () => now);
+  const scheduler = createSchedulerForEdits(edits, logger);
 
   const reporter = createProgressReporter({
-    editStatus: async (_messageId, message, extra) => {
-      edits.push({ message, extra });
-    },
+    scheduler,
+    chatId: 1234,
     fileName: "movie.mp4",
     logger,
     messageId: 10,
     statusMessageId: 99,
+    progressMinIntervalMs: 1_000,
+    progressPercentStep: 5,
     getStatusMarkup: () => createDeleteButtonReplyMarkup("token"),
   });
 
   reporter.report({ downloadedBytes: 12, totalBytes: 100, percent: 12 });
+  await scheduler.whenIdle();
   now = 2_000;
   reporter.report({ downloadedBytes: 13, totalBytes: 100, percent: 13 });
   reporter.report({ downloadedBytes: 16, totalBytes: 100, percent: 16 });
+  await scheduler.whenIdle();
   await reporter.complete({ outputPath: "/tmp/movie.mp4", bytes: 100 }, async () => ({ message_id: 1 }));
+  await scheduler.whenIdle();
 
   assert.deepEqual(edits, [
     {
@@ -94,9 +114,8 @@ test("progress reporter edits status messages at percent steps and on completion
 test("progress reporter can refresh the active status with delete markup", async () => {
   const edits: Array<{ message: string; extra: unknown }> = [];
   const reporter = createProgressReporter({
-    editStatus: async (_messageId, message, extra) => {
-      edits.push({ message, extra });
-    },
+    scheduler: createSchedulerForEdits(edits, createLoggerSpy()),
+    chatId: 1234,
     fileName: "movie.mp4",
     logger: createLoggerSpy(),
     messageId: 10,
@@ -117,21 +136,30 @@ test("progress reporter can refresh the active status with delete markup", async
 test("progress reporter stops editing after the file has been deleted", async () => {
   const edits: string[] = [];
   let deleted = false;
-  const reporter = createProgressReporter({
-    editStatus: async (_messageId, message) => {
+  const logger = createLoggerSpy();
+  const scheduler = new StatusEditScheduler(
+    async (_chatId, _messageId, message) => {
       edits.push(message);
     },
+    logger,
+    0,
+  );
+  const reporter = createProgressReporter({
+    scheduler,
+    chatId: 1234,
     fileName: "movie.mp4",
-    logger: createLoggerSpy(),
+    logger,
     messageId: 10,
     statusMessageId: 99,
     isDeleted: () => deleted,
   });
 
   reporter.report({ downloadedBytes: 50, totalBytes: 100, percent: 50 });
+  await scheduler.whenIdle();
   deleted = true;
   reporter.report({ downloadedBytes: 100, totalBytes: 100, percent: 100 });
   await reporter.complete({ outputPath: "/tmp/movie.mp4", bytes: 100 }, async () => ({ message_id: 1 }));
+  await scheduler.whenIdle();
 
   assert.deepEqual(edits, ["Downloading movie.mp4: 50% (50 B of 100 B)"]);
 });
@@ -141,23 +169,33 @@ test("progress reporter throttles byte-only updates by time interval", async () 
   const edits: string[] = [];
   let now = 5_000;
   mock.method(Date, "now", () => now);
-
-  const reporter = createProgressReporter({
-    editStatus: async (_messageId, message) => {
+  const scheduler = new StatusEditScheduler(
+    async (_chatId, _messageId, message) => {
       edits.push(message);
     },
+    logger,
+    0,
+  );
+
+  const reporter = createProgressReporter({
+    scheduler,
+    chatId: 1234,
     fileName: "movie.mp4",
     logger,
     messageId: 10,
     statusMessageId: 99,
+    progressMinIntervalMs: 3_000,
   });
 
   reporter.report({ downloadedBytes: 1024 });
+  await scheduler.whenIdle();
   now = 6_000;
   reporter.report({ downloadedBytes: 2048 });
   now = 8_500;
   reporter.report({ downloadedBytes: 4096 });
+  await scheduler.whenIdle();
   await reporter.fail(async () => ({ message_id: 1 }));
+  await scheduler.whenIdle();
 
   assert.deepEqual(edits, [
     "Downloading movie.mp4: 1.00 KB downloaded",
@@ -169,9 +207,10 @@ test("progress reporter throttles byte-only updates by time interval", async () 
 test("progress reporter sends standalone replies when no status message exists", async () => {
   const replies: string[] = [];
   const reporter = createProgressReporter({
-    editStatus: async () => {
+    scheduler: new StatusEditScheduler(async () => {
       throw new Error("should not edit without a status message");
-    },
+    }, createLoggerSpy(), 0),
+    chatId: 1234,
     fileName: "movie.mp4",
     logger: createLoggerSpy(),
     messageId: 10,
@@ -195,16 +234,23 @@ test("progress reporter sends standalone replies when no status message exists",
 test("progress reporter logs edit and standalone reply failures", async () => {
   const logger = createLoggerSpy();
   const reporterWithStatus = createProgressReporter({
-    editStatus: async () => {
-      throw new Error("edit failed");
-    },
+    scheduler: new StatusEditScheduler(
+      async () => {
+        throw new Error("edit failed");
+      },
+      logger,
+      0,
+      1,
+    ),
+    chatId: 1234,
     fileName: "movie.mp4",
     logger,
     messageId: 10,
     statusMessageId: 99,
   });
   const reporterWithoutStatus = createProgressReporter({
-    editStatus: async () => {},
+    scheduler: new StatusEditScheduler(async () => {}, logger, 0),
+    chatId: 1234,
     fileName: "clip.mp4",
     logger,
     messageId: 11,
@@ -216,7 +262,7 @@ test("progress reporter logs edit and standalone reply failures", async () => {
     throw new Error("reply failed");
   });
 
-  assert.equal(logger.entries.filter((entry) => entry.message.includes("Failed to edit Telegram progress message")).length, 2);
+  assert.ok(logger.entries.some((entry) => entry.message.includes("Failed to edit Telegram progress message")));
   assert.equal(logger.entries.filter((entry) => entry.message.includes("Failed to send Telegram reply")).length, 1);
 });
 
@@ -253,13 +299,29 @@ test("confirming delete aborts the active download and suppresses failed status"
       fakeDownloader as never,
       logger,
     );
+    (
+      service as unknown as {
+        bot: {
+          telegram: {
+            editMessageText: (
+              _chatId: number,
+              _messageId: number,
+              _inlineMessageId: undefined,
+              message: string,
+              extra?: DeleteButtonReplyMarkup,
+            ) => Promise<unknown>;
+          };
+        };
+      }
+    ).bot.telegram.editMessageText = async (_chatId, _messageId, _inlineMessageId, message, extra) => {
+      edits.push({ message, extra });
+    };
     const downloadAndNotify = (
       service as unknown as {
         downloadAndNotify: (
           message: unknown,
           chatId: number,
           reply: (message: string) => Promise<{ message_id?: number }>,
-          editStatus: (messageId: number, message: string, extra?: DeleteButtonReplyMarkup) => Promise<unknown>,
           statusMessageId: number,
         ) => Promise<void>;
       }
@@ -278,9 +340,6 @@ test("confirming delete aborts the active download and suppresses failed status"
       },
       1234,
       async () => ({ message_id: 1 }),
-      async (_messageId, message, extra) => {
-        edits.push({ message, extra });
-      },
       99,
     );
 
@@ -322,6 +381,41 @@ test("confirming delete aborts the active download and suppresses failed status"
     assert.equal(edits.some((edit) => edit.message.includes("Failed to download")), false);
     assert.equal(logger.entries.some((entry) => entry.level === "error"), false);
   });
+});
+
+test("download semaphore limits active acquisitions to maxConcurrent", async () => {
+  const semaphore = new DownloadSemaphore(3);
+  const releaseCallbacks: Array<() => void> = [];
+  let active = 0;
+  let maxActive = 0;
+
+  const tasks = Array.from({ length: 4 }, async () => {
+    await semaphore.acquire();
+
+    try {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise<void>((resolve) => {
+        releaseCallbacks.push(() => {
+          active -= 1;
+          resolve();
+        });
+      });
+    } finally {
+      semaphore.release();
+    }
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(maxActive, 3);
+
+  while (releaseCallbacks.length > 0) {
+    releaseCallbacks.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  await Promise.all(tasks);
+  assert.equal(active, 0);
 });
 
 test("/files command replies with private message for unauthorized users", async () => {

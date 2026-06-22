@@ -87,4 +87,10 @@ If OpenAI is not configured or classification fails, files are saved under `Unde
 
 For detailed local usage, see [docs/local-development.md](docs/local-development.md).
 
-For Debian server deployment, see [docs/debian-server.md](docs/debian-server.md).
+## Deployment
+
+For Debian server setup and updates, see [docs/debian-server.md](docs/debian-server.md). From your dev machine:
+
+```sh
+./scripts/deploy.sh
+```

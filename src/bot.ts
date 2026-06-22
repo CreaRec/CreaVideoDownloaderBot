@@ -17,17 +17,18 @@ import type { TelegramDownloader } from "./downloader.js";
 import { FileTreeBrowser } from "./file-tree.js";
 import type { Logger } from "./logger.js";
 import { OpenAIUsageService, type OpenAIUsageReporter } from "./openai-usage.js";
+import { DownloadSemaphore } from "./download-semaphore.js";
 import type { Settings } from "./settings.js";
+import { StatusEditScheduler, type StatusReplyFn } from "./status-edit-scheduler.js";
 
 type DownloadableMessage = Message.VideoMessage | Message.DocumentMessage;
 type TelegramStatusMessage = { message_id?: number };
 type ReplyFn = (message: string) => Promise<TelegramStatusMessage>;
-type EditStatusFn = (messageId: number, message: string, extra?: DeleteButtonReplyMarkup) => Promise<unknown>;
 type CallbackMessage = { message_id: number; chat: { id: number }; text?: string };
 type RestartServiceFn = () => void;
 
-const PROGRESS_PERCENT_STEP = 5;
-const PROGRESS_MIN_INTERVAL_MS = 3_000;
+const DEFAULT_PROGRESS_PERCENT_STEP = 10;
+const DEFAULT_PROGRESS_MIN_INTERVAL_MS = 10_000;
 const RESTART_DELAY_MS = 1_000;
 
 export class BotService {
@@ -36,6 +37,10 @@ export class BotService {
   private readonly deleteButtons: DeleteButtonState;
   private readonly fileTree: FileTreeBrowser;
   private readonly activeDownloadsByDeleteToken = new Map<string, AbortController>();
+  private readonly statusScheduler: StatusEditScheduler;
+  private readonly downloadSemaphore: DownloadSemaphore;
+  private readonly progressMinIntervalMs: number;
+  private readonly progressPercentStep: number;
 
   constructor(
     private readonly settings: Settings,
@@ -49,6 +54,14 @@ export class BotService {
     this.allowedUserIds = new Set(settings.telegram.allowedUserIds);
     this.deleteButtons = DeleteButtonState.forDownloadDirectory(settings.download.directory);
     this.fileTree = new FileTreeBrowser(settings.download.directory);
+    this.statusScheduler = new StatusEditScheduler(
+      (chatId, messageId, message, extra) => this.bot.telegram.editMessageText(chatId, messageId, undefined, message, extra),
+      logger,
+      settings.app.statusEditMinGapMs,
+    );
+    this.downloadSemaphore = new DownloadSemaphore(settings.download.maxConcurrent);
+    this.progressMinIntervalMs = settings.app.statusUpdateMinIntervalMs;
+    this.progressPercentStep = settings.app.statusUpdatePercentStep;
     this.registerHandlers();
   }
 
@@ -90,7 +103,6 @@ export class BotService {
         ctx.message,
         ctx.message.chat.id,
         (message) => ctx.reply(message),
-        (messageId, message, extra) => ctx.telegram.editMessageText(ctx.message.chat.id, messageId, undefined, message, extra),
       );
     });
 
@@ -100,7 +112,6 @@ export class BotService {
         ctx.message,
         ctx.message.chat.id,
         (message) => ctx.reply(message),
-        (messageId, message, extra) => ctx.telegram.editMessageText(ctx.message.chat.id, messageId, undefined, message, extra),
       );
     });
 
@@ -130,7 +141,6 @@ export class BotService {
     message: DownloadableMessage,
     chatId: number,
     reply: ReplyFn,
-    editStatus: EditStatusFn,
   ): Promise<void> {
     if (!this.isAllowed(fromUserId)) {
       this.logger.warn(`Ignored message ${message.message_id} from unauthorized user ${fromUserId ?? "unknown"}.`);
@@ -139,25 +149,54 @@ export class BotService {
 
     const fileName = getDisplayFileName(message);
     const statusMessage = await this.safeReply(reply, `Download started: ${fileName}`);
-    void this.downloadAndNotify(message, chatId, reply, editStatus, statusMessage?.message_id);
+    void this.runDownloadWithConcurrency(message, chatId, reply, statusMessage?.message_id);
+  }
+
+  private async runDownloadWithConcurrency(
+    message: DownloadableMessage,
+    chatId: number,
+    reply: ReplyFn,
+    statusMessageId: number | undefined,
+  ): Promise<void> {
+    const fileName = getDisplayFileName(message);
+
+    if (statusMessageId !== undefined && this.downloadSemaphore.active >= this.settings.download.maxConcurrent) {
+      await this.statusScheduler.scheduleTerminal(
+        chatId,
+        statusMessageId,
+        `Queued: ${fileName} (${this.downloadSemaphore.active} active)`,
+        undefined,
+        reply,
+      );
+    }
+
+    await this.downloadSemaphore.acquire();
+
+    try {
+      await this.downloadAndNotify(message, chatId, reply, statusMessageId);
+    } finally {
+      this.downloadSemaphore.release();
+    }
   }
 
   private async downloadAndNotify(
     message: DownloadableMessage,
     chatId: number,
     reply: ReplyFn,
-    editStatus: EditStatusFn,
     statusMessageId: number | undefined,
   ): Promise<void> {
     const fileName = getDisplayFileName(message);
     let deleteToken: string | undefined;
     const abortController = new AbortController();
     const progressReporter = createProgressReporter({
-      editStatus,
+      scheduler: this.statusScheduler,
+      chatId,
       fileName,
       logger: this.logger,
       messageId: message.message_id,
       statusMessageId,
+      progressMinIntervalMs: this.progressMinIntervalMs,
+      progressPercentStep: this.progressPercentStep,
       getStatusMarkup: () => {
         if (!deleteToken || this.deleteButtons.getCached(deleteToken)?.deletedAt) {
           return undefined;
@@ -415,11 +454,14 @@ function defaultRestartService(): void {
 }
 
 interface ProgressReporterOptions {
-  editStatus: EditStatusFn;
+  scheduler: StatusEditScheduler;
+  chatId: number;
   fileName: string;
   logger: Logger;
   messageId: number;
   statusMessageId?: number;
+  progressMinIntervalMs?: number;
+  progressPercentStep?: number;
   getStatusMarkup?: () => DeleteButtonReplyMarkup | undefined;
   isDeleted?: () => boolean;
 }
@@ -431,24 +473,39 @@ export function createProgressReporter(options: ProgressReporterOptions): {
   refresh: () => Promise<void>;
   getLastMessage: () => string;
 } {
+  const progressMinIntervalMs = options.progressMinIntervalMs ?? DEFAULT_PROGRESS_MIN_INTERVAL_MS;
+  const progressPercentStep = options.progressPercentStep ?? DEFAULT_PROGRESS_PERCENT_STEP;
   let lastPercent = -1;
   let lastUpdateAt = 0;
-  let editQueue = Promise.resolve();
   let lastMessage = `Download started: ${options.fileName}`;
 
-  const sendStatus = (message: string): void => {
+  const sendProgress = (message: string): void => {
     if (!options.statusMessageId || options.isDeleted?.()) {
       return;
     }
 
     lastMessage = message;
-    editQueue = editQueue
-      .then(async () => {
-        await options.editStatus(options.statusMessageId as number, message, options.getStatusMarkup?.());
-      })
-      .catch((error: unknown) => {
-        options.logger.warn("Failed to edit Telegram progress message.", error);
-      });
+    options.scheduler.scheduleProgress(
+      options.chatId,
+      options.statusMessageId,
+      message,
+      options.getStatusMarkup?.(),
+    );
+  };
+
+  const sendTerminal = async (message: string, reply?: StatusReplyFn): Promise<void> => {
+    if (!options.statusMessageId || options.isDeleted?.()) {
+      return;
+    }
+
+    lastMessage = message;
+    await options.scheduler.scheduleTerminal(
+      options.chatId,
+      options.statusMessageId,
+      message,
+      options.getStatusMarkup?.(),
+      reply,
+    );
   };
 
   const report = (progress: DownloadProgress): void => {
@@ -456,26 +513,26 @@ export function createProgressReporter(options: ProgressReporterOptions): {
     const now = Date.now();
 
     if (percent === undefined) {
-      if (now - lastUpdateAt < PROGRESS_MIN_INTERVAL_MS) {
+      if (now - lastUpdateAt < progressMinIntervalMs) {
         return;
       }
 
       lastUpdateAt = now;
       options.logger.info(`Downloading Telegram message ${options.messageId}: ${formatBytes(progress.downloadedBytes)} downloaded`);
-      sendStatus(`Downloading ${options.fileName}: ${formatBytes(progress.downloadedBytes)} downloaded`);
+      sendProgress(`Downloading ${options.fileName}: ${formatBytes(progress.downloadedBytes)} downloaded`);
       return;
     }
 
-    const steppedPercent = Math.floor(percent / PROGRESS_PERCENT_STEP) * PROGRESS_PERCENT_STEP;
+    const steppedPercent = Math.floor(percent / progressPercentStep) * progressPercentStep;
 
-    if (steppedPercent <= lastPercent && now - lastUpdateAt < PROGRESS_MIN_INTERVAL_MS) {
+    if (steppedPercent <= lastPercent && now - lastUpdateAt < progressMinIntervalMs) {
       return;
     }
 
     lastPercent = steppedPercent;
     lastUpdateAt = now;
     options.logger.info(`Downloading Telegram message ${options.messageId}: ${percent}%`);
-    sendStatus(
+    sendProgress(
       `Downloading ${options.fileName}: ${percent}% (${formatBytes(progress.downloadedBytes)} of ${formatBytes(progress.totalBytes)})`,
     );
   };
@@ -484,13 +541,11 @@ export function createProgressReporter(options: ProgressReporterOptions): {
     const message = `Saved ${options.fileName} to ${result.outputPath} (${formatBytes(result.bytes)})`;
 
     if (options.isDeleted?.()) {
-      await editQueue;
       return;
     }
 
     if (options.statusMessageId) {
-      sendStatus(message);
-      await editQueue;
+      await sendTerminal(message, reply);
       return;
     }
 
@@ -501,13 +556,11 @@ export function createProgressReporter(options: ProgressReporterOptions): {
     const message = `Failed to download ${options.fileName}. Check the logs for details.`;
 
     if (options.isDeleted?.()) {
-      await editQueue;
       return;
     }
 
     if (options.statusMessageId) {
-      sendStatus(message);
-      await editQueue;
+      await sendTerminal(message, reply);
       return;
     }
 
@@ -515,8 +568,7 @@ export function createProgressReporter(options: ProgressReporterOptions): {
   };
 
   const refresh = async (): Promise<void> => {
-    sendStatus(lastMessage);
-    await editQueue;
+    await sendTerminal(lastMessage);
   };
 
   return { report, complete, fail, refresh, getLastMessage: () => lastMessage };
