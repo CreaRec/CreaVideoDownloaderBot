@@ -103,3 +103,16 @@ test("deleteDownloadedFile deletes only files inside the download directory", as
     await assert.rejects(deleteDownloadedFile(path.join(path.dirname(dir), "outside.mp4"), dir), /outside/);
   });
 });
+
+test("deleteDownloadedFile prunes empty nested directories after deleting the last file", async () => {
+  await withTempDir(async (dir) => {
+    const outputPath = path.join(dir, "TVShow", "Show", "Season_1", "4.mkv");
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, "downloaded", "utf8");
+
+    assert.equal(await deleteDownloadedFile(outputPath, dir), "deleted");
+    await assert.rejects(stat(path.join(dir, "TVShow", "Show", "Season_1")));
+    await assert.rejects(stat(path.join(dir, "TVShow", "Show")));
+    await stat(path.join(dir, "TVShow"));
+  });
+});

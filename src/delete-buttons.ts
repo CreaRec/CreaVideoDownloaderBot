@@ -2,6 +2,9 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { InlineKeyboardMarkup } from "telegraf/types";
+import { isPathInsideDirectory, pruneEmptyParentDirectories } from "./download-paths.js";
+
+export { isPathInsideDirectory } from "./download-paths.js";
 
 const CALLBACK_PREFIX = "file-delete";
 
@@ -230,6 +233,7 @@ export async function deleteDownloadedFile(filePath: string, downloadDirectory: 
 
   try {
     await unlink(filePath);
+    await pruneEmptyParentDirectories(filePath, downloadDirectory);
     return "deleted";
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
@@ -238,14 +242,6 @@ export async function deleteDownloadedFile(filePath: string, downloadDirectory: 
 
     throw error;
   }
-}
-
-export function isPathInsideDirectory(filePath: string, directory: string): boolean {
-  const resolvedFilePath = path.resolve(filePath);
-  const resolvedDirectory = path.resolve(directory);
-  const relativePath = path.relative(resolvedDirectory, resolvedFilePath);
-
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
 }
 
 function createDeleteCallbackData(action: DeleteButtonAction, token: string): string {

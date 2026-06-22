@@ -2,9 +2,11 @@ import { randomBytes } from "node:crypto";
 import { readdir, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { InlineKeyboardMarkup } from "telegraf/types";
+import { isPathInsideDirectory, isProtectedRoot, pruneEmptyParentDirectories } from "./download-paths.js";
+
+export { isPathInsideDirectory } from "./download-paths.js";
 
 const CALLBACK_PREFIX = "file-tree";
-const PROTECTED_ROOT_NAMES = new Set(["Film", "TVShow"]);
 
 export type FileTreeAction = "open" | "select" | "delete" | "confirm" | "cancel" | "refresh";
 
@@ -145,6 +147,13 @@ export class FileTreeBrowser {
     }
 
     this.forgetPath(relativePath);
+
+    const removedParentPaths = await pruneEmptyParentDirectories(itemPath, this.rootDirectory);
+
+    for (const removedParentPath of removedParentPaths) {
+      this.forgetPath(removedParentPath);
+    }
+
     return "deleted";
   }
 
@@ -277,14 +286,6 @@ export class FileTreeBrowser {
   }
 }
 
-export function isPathInsideDirectory(filePath: string, directory: string): boolean {
-  const resolvedFilePath = path.resolve(filePath);
-  const resolvedDirectory = path.resolve(directory);
-  const relativePath = path.relative(resolvedDirectory, resolvedFilePath);
-
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
-}
-
 function createCallbackData(action: FileTreeAction, token: string): string {
   return `${CALLBACK_PREFIX}:${action}:${token}`;
 }
@@ -323,12 +324,6 @@ function getParentRelativePath(relativePath: string): string {
 
 function formatRelativePath(relativePath: string): string {
   return relativePath ? relativePath.split(path.sep).join("/") : "/";
-}
-
-function isProtectedRoot(relativePath: string): boolean {
-  const normalizedPath = normalizeRelativePath(relativePath);
-
-  return !normalizedPath.includes(path.sep) && PROTECTED_ROOT_NAMES.has(normalizedPath);
 }
 
 function isFileTreeAction(value: string): value is FileTreeAction {

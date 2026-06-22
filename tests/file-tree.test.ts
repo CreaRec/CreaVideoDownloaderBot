@@ -17,7 +17,7 @@ test("/files tree renders protected roots and keeps them browse-only", async () 
 
     assert.match(rootView.message, /Folder Film\/ \[protected\]/);
     assert.match(rootView.message, /Folder TVShow\/ \[protected\]/);
-    assert.match(rootView.message, /Folder Undefined\//);
+    assert.match(rootView.message, /Folder Undefined\/ \[protected\]/);
     assert.match(rootView.message, /File loose\.mp4/);
 
     const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Film").callback_data);
@@ -66,6 +66,47 @@ test("/files tree can browse protected roots and delete nested folders", async (
     const outcome = await browser.deleteToken(deleteCallback.token);
     assert.equal(outcome, "deleted");
     await assert.rejects(stat(nestedFolder));
+  });
+});
+
+test("/files tree prunes empty parent folders after deleting the last file", async () => {
+  await withTempDir(async (dir) => {
+    const nestedFolder = path.join(dir, "Film", "Movie_Folder");
+    const moviePath = path.join(nestedFolder, "movie.mp4");
+
+    await mkdir(nestedFolder, { recursive: true });
+    await writeFile(moviePath, "video", "utf8");
+
+    const browser = new FileTreeBrowser(dir);
+    const rootView = await browser.renderRoot();
+    const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Film").callback_data);
+    assert.ok(filmCallback);
+
+    const selectedFilm = await browser.renderSelectedToken(filmCallback.token);
+    const openFilmCallback = browser.parseCallbackData(findButton(selectedFilm, "Open").callback_data);
+    assert.ok(openFilmCallback);
+
+    const filmView = await browser.renderDirectoryToken(openFilmCallback.token);
+    const nestedCallback = browser.parseCallbackData(findButton(filmView, "Folder Movie_Folder").callback_data);
+    assert.ok(nestedCallback);
+
+    const selectedNested = await browser.renderSelectedToken(nestedCallback.token);
+    const openNestedCallback = browser.parseCallbackData(findButton(selectedNested, "Open").callback_data);
+    assert.ok(openNestedCallback);
+
+    const nestedView = await browser.renderDirectoryToken(openNestedCallback.token);
+    const fileCallback = browser.parseCallbackData(findButton(nestedView, "File movie.mp4").callback_data);
+    assert.ok(fileCallback);
+
+    const selectedFile = await browser.renderSelectedToken(fileCallback.token);
+    const deleteCallback = browser.parseCallbackData(findButton(selectedFile, "Delete").callback_data);
+    assert.ok(deleteCallback);
+
+    const outcome = await browser.deleteToken(deleteCallback.token);
+    assert.equal(outcome, "deleted");
+    await assert.rejects(stat(moviePath));
+    await assert.rejects(stat(nestedFolder));
+    await stat(path.join(dir, "Film"));
   });
 });
 
