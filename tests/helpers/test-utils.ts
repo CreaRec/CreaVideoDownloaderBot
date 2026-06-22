@@ -28,6 +28,7 @@ export function createSettings(overrides: PartialSettings = {}): Settings {
     },
     app: {
       logLevel: "debug",
+      stateDirectory: path.join(os.tmpdir(), "telegram-video-state"),
       statusUpdateMinIntervalMs: 10_000,
       statusUpdatePercentStep: 10,
       statusEditMinGapMs: 300,

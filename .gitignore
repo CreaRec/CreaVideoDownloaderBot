@@ -9,6 +9,9 @@ dist/
 # Local runtime settings contain Telegram credentials and sessions.
 config/settings.json
 
+# Local app state (delete-button tokens, etc.).
+data/
+
 # Local logs and OS/editor noise.
 *.log
 .DS_Store

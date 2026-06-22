@@ -37,12 +37,14 @@ const settingsSchema = z.object({
   app: z
     .object({
       logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
+      stateDirectory: z.string().min(1).default(path.join(projectRoot, "data")),
       statusUpdateMinIntervalMs: z.number().int().positive().default(10_000),
       statusUpdatePercentStep: z.number().int().positive().max(50).default(10),
       statusEditMinGapMs: z.number().int().nonnegative().default(300),
     })
     .default({
       logLevel: "info",
+      stateDirectory: path.join(projectRoot, "data"),
       statusUpdateMinIntervalMs: 10_000,
       statusUpdatePercentStep: 10,
       statusEditMinGapMs: 300,
@@ -91,6 +93,10 @@ export async function loadSettings(settingsPath = getSettingsPath()): Promise<Se
 
   return {
     ...parsedSettings.data,
+    app: {
+      ...parsedSettings.data.app,
+      stateDirectory: path.resolve(parsedSettings.data.app.stateDirectory),
+    },
     download: {
       ...parsedSettings.data.download,
       directory: path.resolve(parsedSettings.data.download.directory),

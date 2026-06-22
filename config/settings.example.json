@@ -21,6 +21,7 @@
   },
   "app": {
     "logLevel": "info",
+    "stateDirectory": "data",
     "statusUpdateMinIntervalMs": 10000,
     "statusUpdatePercentStep": 10,
     "statusEditMinGapMs": 300

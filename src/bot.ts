@@ -52,7 +52,7 @@ export class BotService {
   ) {
     this.bot = new Telegraf(settings.telegram.botToken);
     this.allowedUserIds = new Set(settings.telegram.allowedUserIds);
-    this.deleteButtons = DeleteButtonState.forDownloadDirectory(settings.download.directory);
+    this.deleteButtons = DeleteButtonState.forStateDirectory(settings.app.stateDirectory);
     this.fileTree = new FileTreeBrowser(settings.download.directory);
     this.statusScheduler = new StatusEditScheduler(
       (chatId, messageId, message, extra) => this.bot.telegram.editMessageText(chatId, messageId, undefined, message, extra),

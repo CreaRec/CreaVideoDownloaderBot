@@ -48,7 +48,7 @@ test("delete status messages keep the original text readable", () => {
 test("delete button state persists records across instances", async () => {
   await withTempDir(async (dir) => {
     const filePath = path.join(dir, "movie.mp4");
-    const firstState = DeleteButtonState.forDownloadDirectory(dir);
+    const firstState = DeleteButtonState.forStateDirectory(dir);
     const record = await firstState.upsertForStatus({
       chatId: 1234,
       messageId: 99,
@@ -56,12 +56,36 @@ test("delete button state persists records across instances", async () => {
       originalText: "Saved movie.mp4",
     });
 
-    const secondState = DeleteButtonState.forDownloadDirectory(dir);
+    const secondState = DeleteButtonState.forStateDirectory(dir);
     const restored = await secondState.get(record.token);
 
     assert.equal(restored?.filePath, filePath);
     assert.equal(restored?.chatId, 1234);
     assert.equal(restored?.messageId, 99);
+  });
+});
+
+test("delete button state serializes concurrent saves", async () => {
+  await withTempDir(async (dir) => {
+    const state = DeleteButtonState.forStateDirectory(dir);
+    const records = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        state.upsertForStatus({
+          chatId: 1234,
+          messageId: index,
+          filePath: path.join(dir, `movie-${index}.mp4`),
+          originalText: `Saved movie-${index}.mp4`,
+        }),
+      ),
+    );
+
+    const restored = DeleteButtonState.forStateDirectory(dir);
+    const restoredRecords = await Promise.all(records.map((record) => restored.get(record.token)));
+
+    assert.deepEqual(
+      restoredRecords.map((record) => record?.messageId).sort((left, right) => (left ?? 0) - (right ?? 0)),
+      [0, 1, 2, 3, 4, 5, 6, 7],
+    );
   });
 });
 

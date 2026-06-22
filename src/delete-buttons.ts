@@ -33,12 +33,13 @@ export interface DeleteButtonCallback {
 
 export class DeleteButtonState {
   private loaded = false;
+  private saveQueue: Promise<void> = Promise.resolve();
   private readonly records = new Map<string, DeleteButtonRecord>();
 
   constructor(private readonly statePath: string) {}
 
-  static forDownloadDirectory(downloadDirectory: string): DeleteButtonState {
-    return new DeleteButtonState(path.join(downloadDirectory, ".telegram-video-delete-buttons.json"));
+  static forStateDirectory(stateDirectory: string): DeleteButtonState {
+    return new DeleteButtonState(path.join(stateDirectory, "delete-buttons.json"));
   }
 
   async upsertForStatus(input: {
@@ -148,12 +149,17 @@ export class DeleteButtonState {
   }
 
   private async save(): Promise<void> {
+    this.saveQueue = this.saveQueue.then(() => this.writeStateFile());
+    await this.saveQueue;
+  }
+
+  private async writeStateFile(): Promise<void> {
     await mkdir(path.dirname(this.statePath), { recursive: true });
 
     const state: DeleteButtonStateFile = {
       records: [...this.records.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
     };
-    const tempPath = `${this.statePath}.tmp`;
+    const tempPath = `${this.statePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
 
     await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
     await rename(tempPath, this.statePath);

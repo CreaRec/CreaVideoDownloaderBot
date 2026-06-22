@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
 import { Logger } from "../src/logger.js";
@@ -43,6 +44,10 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
     assert.equal(settings.app.statusUpdateMinIntervalMs, 10_000);
     assert.equal(settings.app.statusUpdatePercentStep, 10);
     assert.equal(settings.app.statusEditMinGapMs, 300);
+    assert.equal(
+      settings.app.stateDirectory,
+      path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), "data"),
+    );
     assert.equal(settings.openai.instructionsPath, path.resolve("config/media-classification-instructions.md"));
   });
 });
