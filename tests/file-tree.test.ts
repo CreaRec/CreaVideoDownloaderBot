@@ -5,6 +5,22 @@ import { test } from "node:test";
 import { FileTreeBrowser, isPathInsideDirectory, type FileTreeView } from "../src/file-tree.js";
 import { withTempDir } from "./helpers/test-utils.js";
 
+test("reset clears cached file tree tokens", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
+
+    const browser = new FileTreeBrowser(dir);
+    const rootView = await browser.renderRoot();
+    const fileCallback = browser.parseCallbackData(findButton(rootView, "File loose.mp4").callback_data);
+
+    assert.ok(fileCallback);
+
+    browser.reset();
+
+    await assert.rejects(browser.renderSelectedToken(fileCallback.token), /no longer available/);
+  });
+});
+
 test("/files tree renders protected roots and keeps them browse-only", async () => {
   await withTempDir(async (dir) => {
     await mkdir(path.join(dir, "Film"), { recursive: true });

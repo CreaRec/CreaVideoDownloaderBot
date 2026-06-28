@@ -60,6 +60,11 @@ export class FileTreeBrowser {
     return { action, token };
   }
 
+  reset(): void {
+    this.tokenByPath.clear();
+    this.recordsByToken.clear();
+  }
+
   async renderRoot(): Promise<FileTreeView> {
     return this.renderDirectory("");
   }

@@ -471,6 +471,7 @@ test("/files command replies with the download tree for authorized users", async
 
     await handleFilesCommand({
       from: { id: 1234 },
+      chat: { id: 5678 },
       reply: async (message: string, extra?: unknown) => {
         replies.push({ message, extra });
         return { message_id: 99 };
@@ -482,6 +483,61 @@ test("/files command replies with the download tree for authorized users", async
     assert.match(replies[0].message, /Folder Film\/ \[protected\]/);
     assert.match(replies[0].message, /File loose\.mp4/);
     assert.ok(replies[0].extra);
+  });
+});
+
+test("/files command resets the existing file tree message to a fresh root view", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
+
+    const service = new BotService(
+      createSettings({
+        download: {
+          directory: dir,
+        },
+      }),
+      {} as never,
+      createLoggerSpy(),
+    );
+    const handleFilesCommand = (
+      service as unknown as {
+        handleFilesCommand: (ctx: unknown) => Promise<void>;
+      }
+    ).handleFilesCommand.bind(service);
+    const replies: Array<{ message: string; extra?: unknown }> = [];
+    const edits: Array<{ chatId: number; messageId: number; message: string; extra?: unknown }> = [];
+    const createContext = () => ({
+      from: { id: 1234 },
+      chat: { id: 5678 },
+      reply: async (message: string, extra?: unknown) => {
+        replies.push({ message, extra });
+        return { message_id: 100 };
+      },
+      telegram: {
+        editMessageText: async (
+          chatId: number,
+          messageId: number,
+          _inlineMessageId: undefined,
+          message: string,
+          extra?: unknown,
+        ) => {
+          edits.push({ chatId, messageId, message, extra });
+        },
+      },
+    });
+
+    await handleFilesCommand(createContext());
+    await mkdir(path.join(dir, "Film"), { recursive: true });
+
+    await handleFilesCommand(createContext());
+
+    assert.equal(replies.length, 1);
+    assert.equal(edits.length, 1);
+    assert.equal(edits[0]?.chatId, 5678);
+    assert.equal(edits[0]?.messageId, 100);
+    assert.match(edits[0]?.message ?? "", /Files in \//);
+    assert.match(edits[0]?.message ?? "", /Folder Film\/ \[protected\]/);
+    assert.match(edits[0]?.message ?? "", /File loose\.mp4/);
   });
 });
 

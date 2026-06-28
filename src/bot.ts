@@ -36,6 +36,7 @@ export class BotService {
   private readonly allowedUserIds: Set<number>;
   private readonly deleteButtons: DeleteButtonState;
   private readonly fileTree: FileTreeBrowser;
+  private readonly fileTreeMessageIdByChat = new Map<number, number>();
   private readonly activeDownloadsByDeleteToken = new Map<string, AbortController>();
   private readonly statusScheduler: StatusEditScheduler;
   private readonly downloadSemaphore: DownloadSemaphore;
@@ -339,8 +340,28 @@ export class BotService {
       return;
     }
 
+    const chatId = ctx.chat?.id;
+
+    if (chatId === undefined) {
+      return;
+    }
+
+    this.fileTree.reset();
     const view = await this.fileTree.renderRoot();
-    await ctx.reply(view.message, view.extra);
+    const existingMessageId = this.fileTreeMessageIdByChat.get(chatId);
+
+    if (existingMessageId !== undefined) {
+      try {
+        await ctx.telegram.editMessageText(chatId, existingMessageId, undefined, view.message, view.extra);
+        return;
+      } catch (error) {
+        this.logger.warn("Could not reset existing file tree message; sending a new one.", error);
+        this.fileTreeMessageIdByChat.delete(chatId);
+      }
+    }
+
+    const message = await ctx.reply(view.message, view.extra);
+    this.fileTreeMessageIdByChat.set(chatId, message.message_id);
   }
 
   private async handleUsageCommand(ctx: Context): Promise<void> {
