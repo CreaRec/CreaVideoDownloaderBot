@@ -141,6 +141,46 @@ The deploy script never overwrites `config/settings.json` on the server. If it i
 
 **Server prerequisite:** Node.js 22.9.0 or newer and npm must already be installed on the server (see section 1 above). The deploy script does not install Node.js for you.
 
+## GitHub Actions CI/CD
+
+Merging into `main` triggers an automatic deploy to the production server via [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml).
+
+**On every push and pull request:** the `test` job runs `npm ci` and `npm test`.
+
+**On push to `main` only:** the `deploy` job runs after tests pass. It does not modify `scripts/deploy.sh` or `scripts/deploy-remote.sh`. Instead, the workflow:
+
+1. Writes the deploy SSH private key from GitHub Secrets
+2. Opens an SSH ControlMaster socket authenticated with that key
+3. Calls `./scripts/deploy.sh --remote`, which reuses the existing socket for rsync and remote build/restart
+
+Required GitHub Secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Purpose |
+|--------|---------|
+| `DEPLOY_SSH_KEY` | Private deploy key (matching the public key in server `authorized_keys`) |
+| `DEPLOY_HOST` | Server hostname, for example `crearec.app` |
+| `DEPLOY_USER` | SSH user, for example `crearec` |
+
+**Server prerequisites for CI deploy** (one-time setup):
+
+- Public deploy key in `~/.ssh/authorized_keys` for the deploy user
+- Passwordless sudo for deploy commands in `/etc/sudoers.d/crearec-deploy`:
+
+  ```
+  crearec ALL=(ALL) NOPASSWD: /bin/cp, /bin/systemctl, /usr/bin/journalctl
+  ```
+
+- Node.js, `config/settings.json`, and GramJS session already configured on the server
+
+`DEPLOY_PASSWORD` is not used in CI. The workflow never overwrites `config/settings.json` on the server.
+
+After a successful deploy, verify the service:
+
+```sh
+./scripts/service-debian.sh --remote status
+./scripts/service-debian.sh --remote logs
+```
+
 ## Service Helper Script
 
 From your local project root, use `scripts/service-debian.sh` to manage the remote systemd service over SSH:

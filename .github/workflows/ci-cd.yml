@@ -1,0 +1,52 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Setup SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SERVER_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_CONTROL_PATH: /tmp/video-deploy-${{ secrets.DEPLOY_USER }}-${{ secrets.DEPLOY_HOST }}
+        run: |
+          npm ci
+          SSH_TARGET="${SSH_USER}@${SERVER_HOST}"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            -M -S "$SSH_CONTROL_PATH" -fnNT "$SSH_TARGET"
+          trap 'ssh -S "$SSH_CONTROL_PATH" -O exit "$SSH_TARGET" 2>/dev/null || true' EXIT
+          ./scripts/deploy.sh --remote
