@@ -164,23 +164,33 @@ Required GitHub Secrets (Settings → Secrets and variables → Actions):
 **Server prerequisites for CI deploy** (one-time setup):
 
 - Public deploy key in `~/.ssh/authorized_keys` for the deploy user
-- Passwordless sudo for deploy commands in `/etc/sudoers.d/crearec-deploy`. On the server, confirm binary paths first:
+- Passwordless sudo for deploy commands. **The sudoers username must match `DEPLOY_USER` in GitHub Secrets exactly** (for example `crearec`).
+
+  On the server, as a user with sudo access, run:
 
   ```sh
+  DEPLOY_USER=crearec   # must match GitHub secret DEPLOY_USER
   command -v cp systemctl journalctl
+
+  sudo tee "/etc/sudoers.d/${DEPLOY_USER}-deploy" > /dev/null <<EOF
+  ${DEPLOY_USER} ALL=(ALL) NOPASSWD: /bin/cp, /usr/bin/cp, /bin/systemctl, /usr/bin/systemctl, /usr/bin/journalctl
+  EOF
+  sudo chmod 440 "/etc/sudoers.d/${DEPLOY_USER}-deploy"
+  sudo visudo -c -f "/etc/sudoers.d/${DEPLOY_USER}-deploy"
   ```
 
-  Example drop-in (adjust paths if `command -v` differs):
-
-  ```
-  crearec ALL=(ALL) NOPASSWD: /bin/cp, /usr/bin/cp, /bin/systemctl, /usr/bin/systemctl, /usr/bin/journalctl
-  ```
-
-  Verify without a password prompt:
+  Then **as the deploy user** (not root), verify no password is asked:
 
   ```sh
   sudo -n systemctl --version
+  sudo -n cp --version
   sudo -n systemctl status telegram-video-downloader
+  ```
+
+  If those fail, check: wrong username in sudoers, file permissions not `440`, or binary paths differ from `command -v` output. For a home server, a broader rule also works:
+
+  ```
+  crearec ALL=(ALL) NOPASSWD: ALL
   ```
 
 - Node.js, `config/settings.json`, and GramJS session already configured on the server

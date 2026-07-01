@@ -45,10 +45,13 @@ if ! sudo_probe; then
     start_sudo_keepalive
   else
     echo "[remote] ERROR: passwordless sudo is required for non-interactive deploy (CI)." >&2
-    echo "[remote] Add /etc/sudoers.d/crearec-deploy — see docs/debian-server.md" >&2
-    echo "[remote] Test on the server as ${DEPLOY_USER:-deploy user}:" >&2
-    echo "[remote]   sudo -n systemctl --version" >&2
-    echo "[remote]   sudo -n cp --version" >&2
+    echo "[remote] Running as: $(whoami) (expected deploy user: ${DEPLOY_USER})" >&2
+    echo "[remote] sudo -n systemctl --version:" >&2
+    sudo -n systemctl --version 2>&1 >&2 || true
+    echo "[remote] sudo -n cp --version:" >&2
+    sudo -n cp --version 2>&1 >&2 || true
+    echo "[remote] Fix: create /etc/sudoers.d/${DEPLOY_USER}-deploy with NOPASSWD for cp, systemctl, journalctl." >&2
+    echo "[remote] The username in sudoers must match DEPLOY_USER exactly. See docs/debian-server.md" >&2
     exit 1
   fi
 fi
