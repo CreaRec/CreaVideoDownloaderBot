@@ -13,9 +13,15 @@ cd "$REMOTE_APP_DIR"
 SETTINGS_PATH="${REMOTE_APP_DIR}/config/settings.json"
 SETTINGS_EXAMPLE="${REMOTE_APP_DIR}/config/settings.example.json"
 
-# Probe passwordless sudo with a command allowed by crearec-deploy sudoers (cp/systemctl/journalctl).
+# Probe passwordless sudo with commands allowed by crearec-deploy sudoers.
 sudo_probe() {
-  sudo -n systemctl --version >/dev/null 2>&1
+  sudo -n systemctl --version >/dev/null 2>&1 || \
+    sudo -n cp --version >/dev/null 2>&1
+}
+
+is_interactive_deploy() {
+  [ -t 0 ] && [ -t 1 ] && \
+    [ "${CI:-}" != true ] && [ "${GITHUB_ACTIONS:-}" != true ]
 }
 
 # Reuse one sudo authentication for systemd steps (avoids repeated password prompts).
@@ -33,14 +39,16 @@ if ! sudo_probe; then
   if [ -n "${DEPLOY_PASSWORD:-}" ]; then
     printf '%s\n' "$DEPLOY_PASSWORD" | sudo -S -v
     start_sudo_keepalive
-  elif [ -t 0 ] && [ -t 1 ]; then
+  elif is_interactive_deploy; then
     echo "[remote] sudo required for systemd setup (enter password once)..."
     sudo -v
     start_sudo_keepalive
   else
     echo "[remote] ERROR: passwordless sudo is required for non-interactive deploy (CI)." >&2
     echo "[remote] Add /etc/sudoers.d/crearec-deploy — see docs/debian-server.md" >&2
-    echo "[remote] Test on the server: sudo -n systemctl --version" >&2
+    echo "[remote] Test on the server as ${DEPLOY_USER:-deploy user}:" >&2
+    echo "[remote]   sudo -n systemctl --version" >&2
+    echo "[remote]   sudo -n cp --version" >&2
     exit 1
   fi
 fi

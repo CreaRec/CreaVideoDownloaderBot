@@ -147,7 +147,7 @@ Merging into `main` triggers an automatic deploy to the production server via [`
 
 **On every push and pull request:** the `test` job runs `npm ci` and `npm test`.
 
-**On push to `main` only:** the `deploy` job runs after tests pass. It does not modify `scripts/deploy.sh` or `scripts/deploy-remote.sh`. Instead, the workflow:
+**On push to `main` only:** the `deploy` job runs after tests pass. GitHub Actions sets `CI=true` on the runner; `scripts/deploy.sh` forwards `CI`/`GITHUB_ACTIONS` to the remote script and skips forced TTY (`-tt`) when `DEPLOY_PASSWORD` is unset. The workflow then:
 
 1. Writes the deploy SSH private key from GitHub Secrets
 2. Opens an SSH ControlMaster socket authenticated with that key

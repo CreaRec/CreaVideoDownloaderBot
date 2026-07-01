@@ -31,5 +31,17 @@ test("deploy-remote.sh probes passwordless sudo via systemctl, not true", async 
 
   assert.match(remote, /sudo_probe\(\)/);
   assert.match(remote, /sudo -n systemctl --version/);
+  assert.match(remote, /is_interactive_deploy\(\)/);
+  assert.match(remote, /GITHUB_ACTIONS/);
   assert.doesNotMatch(remote, /\bsudo -n true\b/);
+});
+
+test("deploy.sh forwards CI env and uses -tt only with DEPLOY_PASSWORD", async () => {
+  const deployPath = path.join(repoRoot, "scripts", "deploy.sh");
+  const deploy = await readFile(deployPath, "utf8");
+
+  assert.match(deploy, /REMOTE_ENV\+=\("CI=true"\)/);
+  assert.match(deploy, /REMOTE_ENV\+=\("GITHUB_ACTIONS=true"\)/);
+  assert.match(deploy, /if \[ -n "\$\{DEPLOY_PASSWORD:-\}" \]; then[\s\S]*ssh_cmd -tt/);
+  assert.match(deploy, /else[\s\S]*ssh_cmd "\$SSH_TARGET"/);
 });
