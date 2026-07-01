@@ -164,10 +164,23 @@ Required GitHub Secrets (Settings → Secrets and variables → Actions):
 **Server prerequisites for CI deploy** (one-time setup):
 
 - Public deploy key in `~/.ssh/authorized_keys` for the deploy user
-- Passwordless sudo for deploy commands in `/etc/sudoers.d/crearec-deploy`:
+- Passwordless sudo for deploy commands in `/etc/sudoers.d/crearec-deploy`. On the server, confirm binary paths first:
+
+  ```sh
+  command -v cp systemctl journalctl
+  ```
+
+  Example drop-in (adjust paths if `command -v` differs):
 
   ```
-  crearec ALL=(ALL) NOPASSWD: /bin/cp, /bin/systemctl, /usr/bin/journalctl
+  crearec ALL=(ALL) NOPASSWD: /bin/cp, /usr/bin/cp, /bin/systemctl, /usr/bin/systemctl, /usr/bin/journalctl
+  ```
+
+  Verify without a password prompt:
+
+  ```sh
+  sudo -n systemctl --version
+  sudo -n systemctl status telegram-video-downloader
   ```
 
 - Node.js, `config/settings.json`, and GramJS session already configured on the server

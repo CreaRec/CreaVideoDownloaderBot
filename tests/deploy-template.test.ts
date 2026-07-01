@@ -24,3 +24,12 @@ test("deploy-remote.sh substitutes systemd template placeholders", async () => {
   assert.match(remote, /s#__APP_DIR__#/);
   assert.match(remote, /s#__DOWNLOAD_DIR__#/);
 });
+
+test("deploy-remote.sh probes passwordless sudo via systemctl, not true", async () => {
+  const remotePath = path.join(repoRoot, "scripts", "deploy-remote.sh");
+  const remote = await readFile(remotePath, "utf8");
+
+  assert.match(remote, /sudo_probe\(\)/);
+  assert.match(remote, /sudo -n systemctl --version/);
+  assert.doesNotMatch(remote, /\bsudo -n true\b/);
+});
