@@ -4,6 +4,7 @@ import path from "node:path";
 import { Logger } from "../src/logger.js";
 import { buildLegacyFallbackFileName } from "../src/media-metadata.js";
 import { createMigrationMetadataService, isMigrationVideoFile } from "../src/migration-metadata.js";
+import { formatMigrationProgress } from "../src/migration-progress.js";
 import { loadSettings } from "../src/settings.js";
 
 interface CliOptions {
@@ -19,12 +20,6 @@ interface MigrationSummary {
   skipped: number;
   ignored: number;
   errors: number;
-}
-
-function formatMigrationProgress(current: number, total: number, message: string): string {
-  const width = String(total).length;
-  const index = String(current).padStart(width, " ");
-  return `[${index}/${total}] ${message}`;
 }
 
 async function scanSourceTree(sourceRoot: string): Promise<{ migrationFiles: string[]; ignored: number }> {
@@ -67,33 +62,41 @@ async function main(): Promise<void> {
   for (let index = 0; index < migrationFiles.length; index += 1) {
     const sourcePath = migrationFiles[index];
     const relativePath = path.relative(sourceRoot, sourcePath);
+    const progress = (message: string) => formatMigrationProgress(index + 1, migrationFiles.length, message);
 
     try {
-      console.log(formatMigrationProgress(index + 1, migrationFiles.length, `resolving ${relativePath}`));
+      console.log(progress(`resolving ${relativePath}`));
 
       const extension = path.extname(sourcePath) || ".bin";
       const fallbackFileName = buildLegacyFallbackFileName(path.basename(sourcePath));
       const metadata = await migrationResolver.resolve(relativePath, options.noEnrich);
       const destPath = metadataService.buildOutputPath(metadata, destRoot, fallbackFileName, extension);
 
+      console.log(progress(`resolved -> ${destPath}`));
+
       if (options.dryRun) {
-        console.log(formatMigrationProgress(index + 1, migrationFiles.length, `DRY-RUN ${relativePath} -> ${destPath}`));
+        console.log(progress(`DRY-RUN ${relativePath} -> ${destPath}`));
         continue;
       }
 
+      console.log(progress("checking destination"));
       if (await exists(destPath)) {
-        console.log(formatMigrationProgress(index + 1, migrationFiles.length, `SKIP existing destination: ${destPath}`));
+        console.log(progress(`SKIP existing destination: ${destPath}`));
         summary.skipped += 1;
         continue;
       }
 
-      await mkdir(path.dirname(destPath), { recursive: true });
+      const destDir = path.dirname(destPath);
+      console.log(progress(`creating directory: ${destDir}`));
+      await mkdir(destDir, { recursive: true });
+
+      console.log(progress(`moving ${relativePath}`));
       await rename(sourcePath, destPath);
-      console.log(formatMigrationProgress(index + 1, migrationFiles.length, `MOVED ${relativePath} -> ${destPath}`));
+      console.log(progress(`MOVED ${relativePath} -> ${destPath}`));
       summary.moved += 1;
     } catch (error) {
       summary.errors += 1;
-      console.error(formatMigrationProgress(index + 1, migrationFiles.length, `ERROR ${relativePath}`));
+      console.error(progress(`ERROR ${relativePath}`));
       logger.error(`Failed to migrate ${sourcePath}`, error);
     }
   }
