@@ -229,7 +229,6 @@ test("downloadFromBotMessage routes downloads through the sender user session", 
       createSettings({
         download: { directory: dir },
         telegram: {
-          allowedUserIds: [1234, 5678],
           userSessions: {
             "1234": "owner-session",
             "5678": "other-session",
@@ -259,21 +258,18 @@ test("downloadFromBotMessage routes downloads through the sender user session", 
   });
 });
 
-test("start fails when allowed users are missing GramJS sessions", async () => {
+test("start fails when no GramJS sessions are configured", async () => {
   const downloader = new TelegramDownloader(
     createSettings({
       telegram: {
-        allowedUserIds: [1234, 5678],
-        userSessions: {
-          "1234": "owner-session",
-        },
+        userSessions: {},
       },
     }),
     createLoggerSpy(),
     createMetadataService({ kind: "undefined", reason: "unknown" }) as never,
   );
 
-  await assert.rejects(downloader.start(), /Missing GramJS sessions for Telegram user IDs: 5678/);
+  await assert.rejects(downloader.start(), /No GramJS user sessions configured/);
 });
 
 function createStartedDownloader(options: {
@@ -291,7 +287,6 @@ function createStartedDownloader(options: {
         overwriteExisting: options.overwriteExisting ?? false,
       },
       telegram: {
-        allowedUserIds: [telegramUserId],
         userSessions: {
           [String(telegramUserId)]: "session",
         },

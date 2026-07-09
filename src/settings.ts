@@ -10,13 +10,11 @@ const settingsSchema = z.object({
   telegram: z.object({
     apiId: z.number().int().positive(),
     apiHash: z.string().min(1),
-    stringSession: z.string().optional().default(""),
-    userSessions: z.record(z.string(), z.string()).optional().default({}),
+    userSessions: z.record(z.string(), z.string()).default({}),
     botToken: z.string().min(1),
     botUsername: z.string().min(1).regex(/^[A-Za-z0-9_]+$/, {
       message: "Use the bot username without @.",
     }),
-    allowedUserIds: z.array(z.number().int()).min(1),
   }),
   download: z.object({
     directory: z.string().min(1),
@@ -63,10 +61,14 @@ const settingsSchema = z.object({
 type ParsedSettings = z.infer<typeof settingsSchema>;
 
 export type Settings = Omit<ParsedSettings, "telegram"> & {
-  telegram: Omit<ParsedSettings["telegram"], "stringSession" | "userSessions"> & {
+  telegram: Omit<ParsedSettings["telegram"], "userSessions"> & {
     userSessions: Record<string, string>;
   };
 };
+
+export interface LoadSettingsOptions {
+  requireSessions?: boolean;
+}
 
 export function getSettingsPath(): string {
   if (process.env.SETTINGS_PATH) {
@@ -76,7 +78,11 @@ export function getSettingsPath(): string {
   return path.resolve(projectRoot, "config", "settings.json");
 }
 
-export async function loadSettings(settingsPath = getSettingsPath()): Promise<Settings> {
+export async function loadSettings(
+  settingsPath = getSettingsPath(),
+  options: LoadSettingsOptions = {},
+): Promise<Settings> {
+  const requireSessions = options.requireSessions ?? true;
   let rawSettings: string;
 
   try {
@@ -106,15 +112,15 @@ export async function loadSettings(settingsPath = getSettingsPath()): Promise<Se
     throw new Error(`Settings validation failed: ${details}`);
   }
 
-  const userSessions = normalizeUserSessions(parsedSettings.data.telegram);
+  const userSessions = { ...parsedSettings.data.telegram.userSessions };
 
-  if (!hasConfiguredUserSessions(userSessions)) {
+  if (requireSessions && !hasConfiguredUserSessions(userSessions)) {
     throw new Error(
-      "No GramJS user sessions configured. Run npm run login -- --user-id <telegram_user_id> for each allowed user.",
+      "No GramJS user sessions configured. Run npm run login -- --user-id <telegram_user_id> for each user.",
     );
   }
 
-  const { stringSession: _deprecatedStringSession, userSessions: _rawUserSessions, ...telegram } = parsedSettings.data.telegram;
+  const { userSessions: _rawUserSessions, ...telegram } = parsedSettings.data.telegram;
 
   return {
     ...parsedSettings.data,
@@ -143,22 +149,36 @@ export async function loadSettings(settingsPath = getSettingsPath()): Promise<Se
   };
 }
 
+export function getUserSessionUserIds(userSessions: Record<string, string>): number[] {
+  return Object.keys(userSessions)
+    .map((userId) => Number(userId))
+    .filter((userId) => Number.isInteger(userId));
+}
+
 export function getUserSession(settings: Settings, userId: number): string | undefined {
   const session = settings.telegram.userSessions[String(userId)];
 
   return session && session.length > 0 ? session : undefined;
 }
 
-export function getMissingSessionUserIds(settings: Settings): number[] {
-  return settings.telegram.allowedUserIds.filter((userId) => getUserSession(settings, userId) === undefined);
+export function isConfiguredUser(settings: Settings, userId: number): boolean {
+  return getUserSession(settings, userId) !== undefined;
 }
 
 export function getConfiguredUserSessions(settings: Settings): Array<{ userId: number; session: string }> {
-  return settings.telegram.allowedUserIds
-    .map((userId) => {
-      const session = getUserSession(settings, userId);
+  return Object.entries(settings.telegram.userSessions)
+    .map(([userId, session]) => {
+      if (!session) {
+        return undefined;
+      }
 
-      return session ? { userId, session } : undefined;
+      const parsedUserId = Number(userId);
+
+      if (!Number.isInteger(parsedUserId)) {
+        return undefined;
+      }
+
+      return { userId: parsedUserId, session };
     })
     .filter((entry): entry is { userId: number; session: string } => entry !== undefined);
 }
@@ -186,16 +206,6 @@ export function redactSettings(settings: Settings): Record<string, unknown> {
       apiKey: settings.tmdb.apiKey ? "***" : "",
     },
   };
-}
-
-function normalizeUserSessions(telegram: ParsedSettings["telegram"]): Record<string, string> {
-  const userSessions = { ...telegram.userSessions };
-
-  if (!hasConfiguredUserSessions(userSessions) && telegram.stringSession) {
-    userSessions[String(telegram.allowedUserIds[0])] = telegram.stringSession;
-  }
-
-  return userSessions;
 }
 
 function hasConfiguredUserSessions(userSessions: Record<string, string>): boolean {

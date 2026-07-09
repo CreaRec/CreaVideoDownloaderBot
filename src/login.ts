@@ -4,38 +4,43 @@ import { fileURLToPath } from "node:url";
 import input from "input";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
-import { getSettingsPath, getUserSession, loadSettings } from "./settings.js";
+import { getSettingsPath, getUserSession, getUserSessionUserIds, loadSettings } from "./settings.js";
 
-export function parseLoginUserId(argv: string[], allowedUserIds: number[]): number {
+export function parseLoginUserId(argv: string[], configuredUserIds: number[]): number {
   const userIdIndex = argv.indexOf("--user-id");
 
-  if (userIdIndex === -1) {
-    return allowedUserIds[0];
+  if (userIdIndex !== -1) {
+    const rawUserId = argv[userIdIndex + 1];
+
+    if (!rawUserId || rawUserId.startsWith("-")) {
+      throw new Error("Missing value for --user-id. Usage: npm run login -- --user-id <telegram_user_id>");
+    }
+
+    const userId = Number(rawUserId);
+
+    if (!Number.isInteger(userId)) {
+      throw new Error(`Invalid --user-id value: ${rawUserId}`);
+    }
+
+    return userId;
   }
 
-  const rawUserId = argv[userIdIndex + 1];
-
-  if (!rawUserId || rawUserId.startsWith("-")) {
-    throw new Error("Missing value for --user-id. Usage: npm run login -- --user-id <telegram_user_id>");
+  if (configuredUserIds.length === 1) {
+    return configuredUserIds[0];
   }
 
-  const userId = Number(rawUserId);
-
-  if (!Number.isInteger(userId)) {
-    throw new Error(`Invalid --user-id value: ${rawUserId}`);
+  if (configuredUserIds.length === 0) {
+    throw new Error("Missing --user-id. Usage: npm run login -- --user-id <telegram_user_id>");
   }
 
-  if (!allowedUserIds.includes(userId)) {
-    throw new Error(`User ID ${userId} is not listed in telegram.allowedUserIds.`);
-  }
-
-  return userId;
+  throw new Error("Multiple users are configured in telegram.userSessions. Specify --user-id.");
 }
 
 async function main(): Promise<void> {
   const settingsPath = getSettingsPath();
-  const settings = await loadSettings(settingsPath);
-  const userId = parseLoginUserId(process.argv.slice(2), settings.telegram.allowedUserIds);
+  const settings = await loadSettings(settingsPath, { requireSessions: false });
+  const configuredUserIds = getUserSessionUserIds(settings.telegram.userSessions);
+  const userId = parseLoginUserId(process.argv.slice(2), configuredUserIds);
   const existingSession = getUserSession(settings, userId) ?? "";
   const stringSession = new StringSession(existingSession);
   const client = new TelegramClient(stringSession, settings.telegram.apiId, settings.telegram.apiHash, {
@@ -62,7 +67,6 @@ async function main(): Promise<void> {
     telegram?: {
       stringSession?: string;
       userSessions?: Record<string, string>;
-      allowedUserIds?: number[];
     };
   };
 

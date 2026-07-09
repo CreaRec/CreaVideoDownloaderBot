@@ -25,7 +25,6 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
         },
         botToken: "123:bot-token",
         botUsername: "test_bot",
-        allowedUserIds: [1234],
       },
       download: {
         directory: "downloads",
@@ -55,32 +54,6 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
   });
 });
 
-test("loadSettings migrates legacy stringSession into userSessions for the first allowed user", async () => {
-  await withTempDir(async (dir) => {
-    const settingsPath = path.join(dir, "settings.json");
-
-    await writeJson(settingsPath, {
-      telegram: {
-        apiId: 123456,
-        apiHash: "api-hash",
-        stringSession: "legacy-session",
-        botToken: "123:bot-token",
-        botUsername: "test_bot",
-        allowedUserIds: [1234, 5678],
-      },
-      download: {
-        directory: "downloads",
-      },
-    });
-
-    const settings = await loadSettings(settingsPath);
-
-    assert.deepEqual(settings.telegram.userSessions, {
-      "1234": "legacy-session",
-    });
-  });
-});
-
 test("loadSettings rejects settings without any configured GramJS sessions", async () => {
   await withTempDir(async (dir) => {
     const settingsPath = path.join(dir, "settings.json");
@@ -91,7 +64,6 @@ test("loadSettings rejects settings without any configured GramJS sessions", asy
         apiHash: "api-hash",
         botToken: "123:bot-token",
         botUsername: "test_bot",
-        allowedUserIds: [1234],
       },
       download: {
         directory: "downloads",

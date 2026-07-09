@@ -4,7 +4,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import type { Logger } from "./logger.js";
 import { buildLegacyFallbackFileName, MediaMetadataService } from "./media-metadata.js";
-import { getConfiguredUserSessions, getMissingSessionUserIds, getUserSession, type Settings } from "./settings.js";
+import { getConfiguredUserSessions, getUserSession, type Settings } from "./settings.js";
 
 export interface DownloadRequest {
   botMessageId: number;
@@ -55,18 +55,17 @@ export class TelegramDownloader {
   ) {}
 
   async start(): Promise<void> {
-    const missingSessionUserIds = getMissingSessionUserIds(this.settings);
+    const configuredSessions = getConfiguredUserSessions(this.settings);
 
-    if (missingSessionUserIds.length > 0) {
-      const userIds = missingSessionUserIds.join(", ");
+    if (configuredSessions.length === 0) {
       throw new Error(
-        `Missing GramJS sessions for Telegram user IDs: ${userIds}. Run npm run login -- --user-id <telegram_user_id> for each user.`,
+        "No GramJS user sessions configured. Run npm run login -- --user-id <telegram_user_id> for each user.",
       );
     }
 
     await mkdir(this.settings.download.directory, { recursive: true });
 
-    for (const { userId, session } of getConfiguredUserSessions(this.settings)) {
+    for (const { userId, session } of configuredSessions) {
       const client = new TelegramClient(
         new StringSession(session),
         this.settings.telegram.apiId,

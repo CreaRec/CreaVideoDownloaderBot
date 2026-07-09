@@ -14,7 +14,6 @@ export function createSettings(overrides: PartialSettings = {}): Settings {
       },
       botToken: "123:bot-token",
       botUsername: "test_bot",
-      allowedUserIds: [1234],
     },
     download: {
       directory: path.join(os.tmpdir(), "telegram-video-tests"),

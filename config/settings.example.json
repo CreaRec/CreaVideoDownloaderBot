@@ -6,8 +6,7 @@
       "123456789": ""
     },
     "botToken": "123456789:your_bot_token",
-    "botUsername": "your_bot_username_without_at",
-    "allowedUserIds": [123456789]
+    "botUsername": "your_bot_username_without_at"
   },
   "download": {
     "directory": "/absolute/path/to/save/videos",

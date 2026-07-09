@@ -19,6 +19,7 @@ import type { Logger } from "./logger.js";
 import { OpenAIUsageService, type OpenAIUsageReporter } from "./openai-usage.js";
 import { DownloadSemaphore } from "./download-semaphore.js";
 import type { Settings } from "./settings.js";
+import { isConfiguredUser } from "./settings.js";
 import { StatusEditScheduler, type StatusReplyFn } from "./status-edit-scheduler.js";
 
 type DownloadableMessage = Message.VideoMessage | Message.DocumentMessage;
@@ -33,7 +34,6 @@ const RESTART_DELAY_MS = 1_000;
 
 export class BotService {
   private readonly bot: Telegraf;
-  private readonly allowedUserIds: Set<number>;
   private readonly deleteButtons: DeleteButtonState;
   private readonly fileTree: FileTreeBrowser;
   private readonly fileTreeMessageIdByChat = new Map<number, number>();
@@ -52,7 +52,6 @@ export class BotService {
     private readonly restartDelayMs = RESTART_DELAY_MS,
   ) {
     this.bot = new Telegraf(settings.telegram.botToken);
-    this.allowedUserIds = new Set(settings.telegram.allowedUserIds);
     this.deleteButtons = DeleteButtonState.forStateDirectory(settings.app.stateDirectory);
     this.fileTree = new FileTreeBrowser(settings.download.directory);
     this.statusScheduler = new StatusEditScheduler(
@@ -452,7 +451,7 @@ export class BotService {
   }
 
   private isAllowed(userId: number | undefined): userId is number {
-    return userId !== undefined && this.allowedUserIds.has(userId);
+    return userId !== undefined && isConfiguredUser(this.settings, userId);
   }
 
   private async safeReply(reply: ReplyFn, message: string): Promise<TelegramStatusMessage | undefined> {
