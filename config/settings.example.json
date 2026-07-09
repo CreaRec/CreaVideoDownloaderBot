@@ -19,6 +19,10 @@
     "instructionsPath": "config/media-classification-instructions.md",
     "usageStartDate": "2026-01-01"
   },
+  "tmdb": {
+    "apiKey": "",
+    "language": "ru-RU"
+  },
   "app": {
     "logLevel": "info",
     "stateDirectory": "data",

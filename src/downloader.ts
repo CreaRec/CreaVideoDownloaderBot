@@ -3,7 +3,7 @@ import path from "node:path";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import type { Logger } from "./logger.js";
-import type { MediaClassifier, MediaClassification } from "./media-classifier.js";
+import { buildLegacyFallbackFileName, MediaMetadataService } from "./media-metadata.js";
 import type { Settings } from "./settings.js";
 
 export interface DownloadRequest {
@@ -46,7 +46,7 @@ export class TelegramDownloader {
   constructor(
     private readonly settings: Settings,
     private readonly logger: Logger,
-    private readonly mediaClassifier: MediaClassifier,
+    private readonly mediaMetadataService: MediaMetadataService,
   ) {
     this.client = new TelegramClient(
       new StringSession(settings.telegram.stringSession),
@@ -173,15 +173,20 @@ export class TelegramDownloader {
   private async buildOutputPath(request: DownloadRequest): Promise<string> {
     const fallbackName = `${request.mediaKind}-${request.botMessageId}${request.mediaKind === "video" ? ".mp4" : ".bin"}`;
     const originalName = request.suggestedFileName || fallbackName;
-    const safeName = sanitizeFileName(originalName);
+    const safeName = buildLegacyFallbackFileName(originalName);
     const extension = path.extname(safeName) || (request.mediaKind === "video" ? ".mp4" : ".bin");
-    const classification = await this.mediaClassifier.classify({
+    const metadata = await this.mediaMetadataService.resolveMetadata({
       fileName: request.suggestedFileName,
       description: request.caption,
     });
-    const initialPath = buildClassifiedPath(this.settings.download.directory, classification, safeName, extension);
+    const initialPath = this.mediaMetadataService.buildOutputPath(
+      metadata,
+      this.settings.download.directory,
+      safeName,
+      extension,
+    );
 
-    this.logger.info(`Classified Telegram message ${request.botMessageId} as ${classification.kind}.`, classification);
+    this.logger.info(`Classified Telegram message ${request.botMessageId} as ${metadata.kind}.`, metadata);
     await mkdir(path.dirname(initialPath), { recursive: true });
 
     if (this.settings.download.overwriteExisting) {
@@ -190,29 +195,6 @@ export class TelegramDownloader {
 
     return getAvailablePath(initialPath);
   }
-}
-
-function buildClassifiedPath(
-  downloadDirectory: string,
-  classification: MediaClassification,
-  fallbackName: string,
-  extension: string,
-): string {
-  if (classification.kind === "film") {
-    return path.join(downloadDirectory, "Film", sanitizeFileName(`${classification.title}${extension}`));
-  }
-
-  if (classification.kind === "tv_show") {
-    return path.join(
-      downloadDirectory,
-      "TVShow",
-      sanitizeFileName(classification.title),
-      `Season_${classification.season}`,
-      sanitizeFileName(`${classification.episode}${extension}`),
-    );
-  }
-
-  return path.join(downloadDirectory, "Undefined", fallbackName);
 }
 
 interface GramMessage {
@@ -297,19 +279,6 @@ function throwIfDownloadCanceled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new DownloadCanceledError();
   }
-}
-
-function sanitizeFileName(fileName: string): string {
-  const cleaned = fileName
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
-    .replace(/\s+/g, "_")
-    .trim();
-
-  if (!cleaned || cleaned === "." || cleaned === "..") {
-    return `telegram-video-${Date.now()}.bin`;
-  }
-
-  return cleaned;
 }
 
 async function getAvailablePath(filePath: string): Promise<string> {

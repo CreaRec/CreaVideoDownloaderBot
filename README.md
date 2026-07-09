@@ -12,7 +12,7 @@ It uses two Telegram identities:
 - Accepts video messages and document-style video files from configured Telegram user IDs only.
 - Shows download progress in Telegram and updates the final status with the saved path and file size.
 - Adds an inline delete button to each completed download; deleting an active download cancels it before removing the file.
-- Uses OpenAI media classification, when configured, to save files into `Film`, `TVShow/<title>/Season_<n>`, or `Undefined`.
+- Uses OpenAI + TMDB metadata enrichment to save files into Plex-compatible `Movies`, `TV Shows`, or `Undefined` folders.
 - Provides an inline file browser for downloaded files and folders, including refresh, back navigation, and confirmed deletion.
 - Reports OpenAI usage from Telegram when an OpenAI admin API key is configured.
 - Supports a private `/restart` command for remotely restarting the Debian service.
@@ -24,6 +24,7 @@ It uses two Telegram identities:
 - A Telegram bot token from BotFather.
 - Your numeric Telegram user ID for `allowedUserIds`.
 - Optional: an OpenAI API key for media classification.
+- Optional: a TMDB API key for verified Plex metadata IDs (`imdb`, `tvdb`, `tmdb`).
 - Optional: an OpenAI admin API key for usage reporting.
 
 ## Configuration
@@ -51,6 +52,8 @@ Settings:
 - `openai.model`: OpenAI model used for media classification.
 - `openai.instructionsPath`: prompt file used by the media classifier.
 - `openai.usageStartDate`: optional `YYYY-MM-DD` start date for the default `/usage` report.
+- `tmdb.apiKey`: optional TMDB API key for Plex ID enrichment; can also be set with `TMDB_API_KEY`.
+- `tmdb.language`: TMDB language for titles and episode names, default `ru-RU`.
 - `app.logLevel`: `debug`, `info`, `warn`, or `error`.
 
 ## Quick Start
@@ -77,13 +80,17 @@ Any other message from an allowed user receives a short help response. Messages 
 
 ## Download Layout
 
-When OpenAI classification is configured, downloads are organized like this:
+When OpenAI classification is configured, the bot enriches metadata with TMDB when `tmdb.apiKey` is set, then saves files in Plex-compatible layout:
 
-- Films: `Film/<title>.<ext>`
-- TV episodes: `TVShow/<title>/Season_<season>/<episode>.<ext>`
+- Films: `Movies/Inception (2010) {imdb-tt1375666}/Inception (2010) {imdb-tt1375666}.mkv`
+- TV episodes: `TV Shows/Breaking Bad (2008) {tvdb-81189}/Season 03/Breaking Bad (2008) - s03e04 - Episode Title.mkv`
 - Unclassified media: `Undefined/<original-or-generated-name>`
 
+The classifier uses both the Telegram filename and message caption/description. If OpenAI or TMDB is not configured, files fall back to `Undefined` or to title/year-only Plex paths without ID tags.
+
 If OpenAI is not configured or classification fails, files are saved under `Undefined`. When `download.overwriteExisting` is `false`, the app picks an available filename instead of replacing an existing file.
+
+To migrate an existing `bot/Film` and `bot/TVShow` library, use `npx tsx scripts/migrate-to-plex.ts` on the server.
 
 For detailed local usage, see [docs/local-development.md](docs/local-development.md).
 

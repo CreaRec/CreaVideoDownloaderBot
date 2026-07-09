@@ -3,14 +3,14 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isDownloadCanceled, TelegramDownloader, type DownloadProgress } from "../src/downloader.js";
-import type { MediaClassification } from "../src/media-classifier.js";
+import type { PlexMetadata } from "../src/media-metadata.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
 test("downloadFromBotMessage requires the downloader to be started", async () => {
   const downloader = new TelegramDownloader(
     createSettings(),
     createLoggerSpy(),
-    createClassifier({ kind: "undefined", reason: "none" }) as never,
+    createMetadataService({ kind: "undefined", reason: "none" }) as never,
   );
 
   await assert.rejects(
@@ -21,7 +21,7 @@ test("downloadFromBotMessage requires the downloader to be started", async () =>
 
 test("downloadFromBotMessage saves classified films, avoids collisions, and reports progress", async () => {
   await withTempDir(async (dir) => {
-    const initialPath = path.join(dir, "Film", "Bad_Movie.mp4");
+    const initialPath = path.join(dir, "Movies", "Bad Movie", "Bad Movie.mp4");
     const existingBytes = Buffer.from("already here");
     const progressEvents: DownloadProgress[] = [];
     const outputPathEvents: string[] = [];
@@ -34,7 +34,7 @@ test("downloadFromBotMessage saves classified films, avoids collisions, and repo
     });
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      classification: { kind: "film", title: "Bad Movie" },
+      metadata: { kind: "film", title: "Bad Movie" },
       client: fakeClient,
     });
 
@@ -48,7 +48,7 @@ test("downloadFromBotMessage saves classified films, avoids collisions, and repo
       onProgress: (progress) => progressEvents.push(progress),
     });
 
-    assert.equal(result.outputPath, path.join(dir, "Film", "Bad_Movie-1.mp4"));
+    assert.equal(result.outputPath, path.join(dir, "Movies", "Bad Movie", "Bad Movie-1.mp4"));
     assert.deepEqual(outputPathEvents, [result.outputPath]);
     assert.equal(result.bytes, Buffer.byteLength("downloaded"));
     assert.equal((await stat(initialPath)).size, existingBytes.length);
@@ -64,12 +64,12 @@ test("downloadFromBotMessage saves TV shows and undefined classifications into e
   await withTempDir(async (dir) => {
     const tvDownloader = createStartedDownloader({
       downloadDirectory: dir,
-      classification: { kind: "tv_show", title: "Show Name", season: 3, episode: 4 },
+      metadata: { kind: "tv_show", title: "Show Name", season: 3, episode: 4 },
       client: createFakeClient({ messages: [{ id: 11, media: media("MessageMediaDocument") }] }),
     });
     const undefinedDownloader = createStartedDownloader({
       downloadDirectory: dir,
-      classification: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "undefined", reason: "unknown" },
       client: createFakeClient({ messages: [{ id: 12, media: media("MessageMediaPhoto") }] }),
     });
 
@@ -84,21 +84,24 @@ test("downloadFromBotMessage saves TV shows and undefined classifications into e
       suggestedFileName: "bad/name?.mkv",
     });
 
-    assert.equal(tvResult.outputPath, path.join(dir, "TVShow", "Show_Name", "Season_3", "4.mkv"));
+    assert.equal(
+      tvResult.outputPath,
+      path.join(dir, "TV Shows", "Show Name", "Season 03", "Show Name - s03e04.mkv"),
+    );
     assert.equal(undefinedResult.outputPath, path.join(dir, "Undefined", "bad_name_.mkv"));
   });
 });
 
 test("downloadFromBotMessage can overwrite existing classified output", async () => {
   await withTempDir(async (dir) => {
-    const outputPath = path.join(dir, "Film", "Same_Name.mp4");
+    const outputPath = path.join(dir, "Movies", "Same Name", "Same Name.mp4");
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, "old");
 
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
       overwriteExisting: true,
-      classification: { kind: "film", title: "Same Name" },
+      metadata: { kind: "film", title: "Same Name" },
       client: createFakeClient({ messages: [{ id: 13, media: media("MessageMediaDocument") }] }),
     });
 
@@ -118,7 +121,7 @@ test("downloadFromBotMessage cancels when the abort signal is triggered during p
     const controller = new AbortController();
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      classification: { kind: "film", title: "Canceled Movie" },
+      metadata: { kind: "film", title: "Canceled Movie" },
       client: createFakeClient({ messages: [{ id: 14, media: media("MessageMediaDocument") }] }),
     });
 
@@ -143,7 +146,7 @@ test("downloadFromBotMessage cancels before starting when the abort signal is al
     const fakeClient = createFakeClient({ messages: [{ id: 15, media: media("MessageMediaDocument") }] });
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      classification: { kind: "film", title: "Canceled Movie" },
+      metadata: { kind: "film", title: "Canceled Movie" },
       client: fakeClient,
     });
 
@@ -172,7 +175,7 @@ test("downloadFromBotMessage falls back to recent outgoing bot media when direct
     });
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      classification: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "undefined", reason: "unknown" },
       client: fakeClient,
     });
 
@@ -192,7 +195,7 @@ test("downloadFromBotMessage fails when no downloadable media can be found", asy
   await withTempDir(async (dir) => {
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      classification: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "undefined", reason: "unknown" },
       client: createFakeClient({
         messages: [{ id: 30 }],
         iterMessages: [{ id: 31, media: media("MessageMediaUnsupported"), date: 1000 }],
@@ -208,7 +211,7 @@ test("downloadFromBotMessage fails when no downloadable media can be found", asy
 
 function createStartedDownloader(options: {
   downloadDirectory: string;
-  classification: MediaClassification;
+  metadata: PlexMetadata;
   client: FakeClient;
   overwriteExisting?: boolean;
 }): TelegramDownloader {
@@ -220,7 +223,7 @@ function createStartedDownloader(options: {
       },
     }),
     createLoggerSpy(),
-    createClassifier(options.classification) as never,
+    createMetadataService(options.metadata) as never,
   );
 
   Object.assign(downloader as unknown as { client: FakeClient; botEntity: unknown }, {
@@ -231,9 +234,34 @@ function createStartedDownloader(options: {
   return downloader;
 }
 
-function createClassifier(classification: MediaClassification): { classify: () => Promise<MediaClassification> } {
+function createMetadataService(metadata: PlexMetadata) {
   return {
-    classify: async () => classification,
+    resolveMetadata: async () => metadata,
+    buildOutputPath: (resolvedMetadata: PlexMetadata, rootDirectory: string, fallbackFileName: string, extension: string) => {
+      if (resolvedMetadata.kind === "film" && resolvedMetadata.title) {
+        return path.join(rootDirectory, "Movies", resolvedMetadata.title, `${resolvedMetadata.title}${extension}`);
+      }
+
+      if (
+        resolvedMetadata.kind === "tv_show" &&
+        resolvedMetadata.title &&
+        resolvedMetadata.season &&
+        resolvedMetadata.episode
+      ) {
+        const season = String(resolvedMetadata.season).padStart(2, "0");
+        const episode = String(resolvedMetadata.episode).padStart(2, "0");
+
+        return path.join(
+          rootDirectory,
+          "TV Shows",
+          resolvedMetadata.title,
+          `Season ${season}`,
+          `${resolvedMetadata.title} - s${season}e${episode}${extension}`,
+        );
+      }
+
+      return path.join(rootDirectory, "Undefined", fallbackFileName);
+    },
   };
 }
 

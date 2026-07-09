@@ -34,6 +34,14 @@ const settingsSchema = z.object({
       model: "gpt-4o-mini",
       instructionsPath: path.resolve(projectRoot, "config", "media-classification-instructions.md"),
     }),
+  tmdb: z
+    .object({
+      apiKey: z.string().optional(),
+      language: z.string().min(1).default("ru-RU"),
+    })
+    .default({
+      language: "ru-RU",
+    }),
   app: z
     .object({
       logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -107,6 +115,10 @@ export async function loadSettings(settingsPath = getSettingsPath()): Promise<Se
       adminApiKey: process.env.OPENAI_ADMIN_API_KEY ?? parsedSettings.data.openai.adminApiKey ?? "",
       instructionsPath: path.resolve(parsedSettings.data.openai.instructionsPath),
     },
+    tmdb: {
+      ...parsedSettings.data.tmdb,
+      apiKey: process.env.TMDB_API_KEY ?? parsedSettings.data.tmdb.apiKey ?? "",
+    },
   };
 }
 
@@ -123,6 +135,10 @@ export function redactSettings(settings: Settings): Record<string, unknown> {
       ...settings.openai,
       apiKey: settings.openai.apiKey ? "***" : "",
       adminApiKey: settings.openai.adminApiKey ? "***" : "",
+    },
+    tmdb: {
+      ...settings.tmdb,
+      apiKey: settings.tmdb.apiKey ? "***" : "",
     },
   };
 }

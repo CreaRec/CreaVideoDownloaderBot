@@ -269,7 +269,7 @@ test("progress reporter logs edit and standalone reply failures", async () => {
 test("confirming delete aborts the active download and suppresses failed status", async () => {
   await withTempDir(async (dir) => {
     const logger = createLoggerSpy();
-    const outputPath = path.join(dir, "Film", "movie.mp4");
+    const outputPath = path.join(dir, "Movies", "movie.mp4");
     const edits: Array<{ message: string; extra?: DeleteButtonReplyMarkup }> = [];
     const callbackAnswers: string[] = [];
     let capturedSignal: AbortSignal | undefined;
@@ -450,7 +450,7 @@ test("/files command replies with private message for unauthorized users", async
 
 test("/files command replies with the download tree for authorized users", async () => {
   await withTempDir(async (dir) => {
-    await mkdir(path.join(dir, "Film"), { recursive: true });
+    await mkdir(path.join(dir, "Movies"), { recursive: true });
     await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
 
     const service = new BotService(
@@ -480,7 +480,7 @@ test("/files command replies with the download tree for authorized users", async
 
     assert.equal(replies.length, 1);
     assert.match(replies[0].message, /Files in \//);
-    assert.match(replies[0].message, /Folder Film\/ \[protected\]/);
+    assert.match(replies[0].message, /Folder Movies\/ \[protected\]/);
     assert.match(replies[0].message, /File loose\.mp4/);
     assert.ok(replies[0].extra);
   });
@@ -527,7 +527,7 @@ test("/files command resets the existing file tree message to a fresh root view"
     });
 
     await handleFilesCommand(createContext());
-    await mkdir(path.join(dir, "Film"), { recursive: true });
+    await mkdir(path.join(dir, "Movies"), { recursive: true });
 
     await handleFilesCommand(createContext());
 
@@ -536,7 +536,7 @@ test("/files command resets the existing file tree message to a fresh root view"
     assert.equal(edits[0]?.chatId, 5678);
     assert.equal(edits[0]?.messageId, 100);
     assert.match(edits[0]?.message ?? "", /Files in \//);
-    assert.match(edits[0]?.message ?? "", /Folder Film\/ \[protected\]/);
+    assert.match(edits[0]?.message ?? "", /Folder Movies\/ \[protected\]/);
     assert.match(edits[0]?.message ?? "", /File loose\.mp4/);
   });
 });

@@ -26,6 +26,10 @@ export function createSettings(overrides: PartialSettings = {}): Settings {
       instructionsPath: path.join(os.tmpdir(), "telegram-video-instructions.md"),
       usageStartDate: undefined,
     },
+    tmdb: {
+      apiKey: "",
+      language: "ru-RU",
+    },
     app: {
       logLevel: "debug",
       stateDirectory: path.join(os.tmpdir(), "telegram-video-state"),
@@ -49,6 +53,10 @@ export function createSettings(overrides: PartialSettings = {}): Settings {
     openai: {
       ...base.openai,
       ...overrides.openai,
+    },
+    tmdb: {
+      ...base.tmdb,
+      ...overrides.tmdb,
     },
     app: {
       ...base.app,

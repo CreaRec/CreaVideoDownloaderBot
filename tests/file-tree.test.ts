@@ -23,20 +23,20 @@ test("reset clears cached file tree tokens", async () => {
 
 test("/files tree renders protected roots and keeps them browse-only", async () => {
   await withTempDir(async (dir) => {
-    await mkdir(path.join(dir, "Film"), { recursive: true });
-    await mkdir(path.join(dir, "TVShow"), { recursive: true });
+    await mkdir(path.join(dir, "Movies"), { recursive: true });
+    await mkdir(path.join(dir, "TV Shows"), { recursive: true });
     await mkdir(path.join(dir, "Undefined"), { recursive: true });
     await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
 
     const browser = new FileTreeBrowser(dir);
     const rootView = await browser.renderRoot();
 
-    assert.match(rootView.message, /Folder Film\/ \[protected\]/);
-    assert.match(rootView.message, /Folder TVShow\/ \[protected\]/);
+    assert.match(rootView.message, /Folder Movies\/ \[protected\]/);
+    assert.match(rootView.message, /Folder TV Shows\/ \[protected\]/);
     assert.match(rootView.message, /Folder Undefined\/ \[protected\]/);
     assert.match(rootView.message, /File loose\.mp4/);
 
-    const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Film").callback_data);
+    const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
     assert.ok(filmCallback);
     assert.equal(filmCallback?.action, "select");
 
@@ -49,14 +49,14 @@ test("/files tree renders protected roots and keeps them browse-only", async () 
 
 test("/files tree can browse protected roots and delete nested folders", async () => {
   await withTempDir(async (dir) => {
-    const nestedFolder = path.join(dir, "Film", "Movie_Folder");
+    const nestedFolder = path.join(dir, "Movies", "Movie_Folder");
 
     await mkdir(nestedFolder, { recursive: true });
     await writeFile(path.join(nestedFolder, "movie.mp4"), "video", "utf8");
 
     const browser = new FileTreeBrowser(dir);
     const rootView = await browser.renderRoot();
-    const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Film").callback_data);
+    const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
     assert.ok(filmCallback);
 
     const selectedFilm = await browser.renderSelectedToken(filmCallback.token);
@@ -87,7 +87,7 @@ test("/files tree can browse protected roots and delete nested folders", async (
 
 test("/files tree prunes empty parent folders after deleting the last file", async () => {
   await withTempDir(async (dir) => {
-    const nestedFolder = path.join(dir, "Film", "Movie_Folder");
+    const nestedFolder = path.join(dir, "Movies", "Movie_Folder");
     const moviePath = path.join(nestedFolder, "movie.mp4");
 
     await mkdir(nestedFolder, { recursive: true });
@@ -95,7 +95,7 @@ test("/files tree prunes empty parent folders after deleting the last file", asy
 
     const browser = new FileTreeBrowser(dir);
     const rootView = await browser.renderRoot();
-    const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Film").callback_data);
+    const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
     assert.ok(filmCallback);
 
     const selectedFilm = await browser.renderSelectedToken(filmCallback.token);
@@ -122,7 +122,7 @@ test("/files tree prunes empty parent folders after deleting the last file", asy
     assert.equal(outcome, "deleted");
     await assert.rejects(stat(moviePath));
     await assert.rejects(stat(nestedFolder));
-    await stat(path.join(dir, "Film"));
+    await stat(path.join(dir, "Movies"));
   });
 });
 

@@ -233,3 +233,54 @@ For a quick operations reference, see `docs/debian-commands.md`.
 - If you change `download.directory`, redeploy so `ReadWritePaths` in the installed systemd unit is updated from `deploy/telegram-video-downloader.service`.
 - The bot only processes messages from `telegram.allowedUserIds`.
 - The `/restart` command is restricted to `telegram.allowedUserIds` and depends on systemd restarting the process.
+
+## Plex + Synology Storage
+
+Production example on a Debian server with Synology NAS:
+
+```
+//DS223/video  →  /mnt/synology/video
+```
+
+Recommended `config/settings.json` values:
+
+```json
+{
+  "download": {
+    "directory": "/mnt/synology/video"
+  },
+  "openai": {
+    "apiKey": "..."
+  },
+  "tmdb": {
+    "apiKey": "...",
+    "language": "ru-RU"
+  }
+}
+```
+
+Plex libraries:
+
+- Movies → `/mnt/synology/video/Movies`
+- TV Shows → `/mnt/synology/video/TV Shows`
+
+Get a free TMDB API key from <https://www.themoviedb.org/settings/api>.
+
+### Migrating From `bot/Film` and `bot/TVShow`
+
+After deploying the Plex layout update:
+
+```sh
+cd /home/crearec/crea-video-downloader-bot
+npx tsx scripts/migrate-to-plex.ts --dry-run
+npx tsx scripts/migrate-to-plex.ts
+```
+
+Defaults:
+
+- `--source /mnt/synology/video/bot`
+- `--dest /mnt/synology/video`
+
+The script copies files into enriched Plex paths using the same OpenAI + TMDB pipeline as new downloads. Use `--no-enrich` for path-only parsing without network calls.
+
+After migration, change `download.directory` from `/mnt/synology/video/bot` to `/mnt/synology/video`, redeploy, scan Plex libraries, and remove the old `bot/` folder manually once verified.

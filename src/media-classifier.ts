@@ -8,8 +8,10 @@ const MIN_CONFIDENCE = 0.7;
 const modelResponseSchema = z.object({
   kind: z.enum(["film", "tv_show", "undefined"]),
   title: z.string().nullable(),
+  year: z.number().int().min(1800).max(2200).nullable(),
   season: z.number().int().positive().nullable(),
   episode: z.number().int().positive().nullable(),
+  episodeTitle: z.string().nullable(),
   confidence: z.number().min(0).max(1),
   reason: z.string(),
 });
@@ -18,12 +20,15 @@ export type MediaClassification =
   | {
       kind: "film";
       title: string;
+      year?: number;
     }
   | {
       kind: "tv_show";
       title: string;
+      year?: number;
       season: number;
       episode: number;
+      episodeTitle?: string;
     }
   | {
       kind: "undefined";
@@ -123,6 +128,7 @@ function normalizeClassification(response: ModelResponse): MediaClassification {
     return {
       kind: "film",
       title: response.title,
+      year: response.year ?? undefined,
     };
   }
 
@@ -130,8 +136,10 @@ function normalizeClassification(response: ModelResponse): MediaClassification {
     return {
       kind: "tv_show",
       title: response.title,
+      year: response.year ?? undefined,
       season: response.season,
       episode: response.episode,
+      episodeTitle: response.episodeTitle ?? undefined,
     };
   }
 

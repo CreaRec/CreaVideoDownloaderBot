@@ -91,7 +91,7 @@ test("delete button state serializes concurrent saves", async () => {
 
 test("deleteDownloadedFile deletes only files inside the download directory", async () => {
   await withTempDir(async (dir) => {
-    const outputPath = path.join(dir, "Film", "movie.mp4");
+    const outputPath = path.join(dir, "Movies", "movie.mp4");
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, "downloaded", "utf8");
 
@@ -106,13 +106,13 @@ test("deleteDownloadedFile deletes only files inside the download directory", as
 
 test("deleteDownloadedFile prunes empty nested directories after deleting the last file", async () => {
   await withTempDir(async (dir) => {
-    const outputPath = path.join(dir, "TVShow", "Show", "Season_1", "4.mkv");
+    const outputPath = path.join(dir, "TV Shows", "Show", "Season 01", "4.mkv");
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, "downloaded", "utf8");
 
     assert.equal(await deleteDownloadedFile(outputPath, dir), "deleted");
-    await assert.rejects(stat(path.join(dir, "TVShow", "Show", "Season_1")));
-    await assert.rejects(stat(path.join(dir, "TVShow", "Show")));
-    await stat(path.join(dir, "TVShow"));
+    await assert.rejects(stat(path.join(dir, "TV Shows", "Show", "Season 01")));
+    await assert.rejects(stat(path.join(dir, "TV Shows", "Show")));
+    await stat(path.join(dir, "TV Shows"));
   });
 });

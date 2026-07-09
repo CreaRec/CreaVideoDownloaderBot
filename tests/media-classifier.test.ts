@@ -32,8 +32,10 @@ test("classify sends the configured request and normalizes a film response", asy
               content: JSON.stringify({
                 kind: "film",
                 title: "The Movie",
+                year: 2010,
                 season: null,
                 episode: null,
+                episodeTitle: null,
                 confidence: 0.95,
                 reason: "Matched movie title.",
               }),
@@ -61,7 +63,7 @@ test("classify sends the configured request and normalizes a film response", asy
       messages: Array<{ role: string; content: string }>;
     };
 
-    assert.deepEqual(result, { kind: "film", title: "The Movie" });
+    assert.deepEqual(result, { kind: "film", title: "The Movie", year: 2010 });
     assert.equal(fetchMock.mock.calls[0].arguments[0], "https://api.openai.com/v1/chat/completions");
     assert.equal(fetchMock.mock.calls[0].arguments[1]?.headers?.["Authorization"], "Bearer key");
     assert.equal(request.model, "test-model");
@@ -87,8 +89,10 @@ test("classify normalizes a TV show response", async () => {
               content: JSON.stringify({
                 kind: "tv_show",
                 title: "The Show",
+                year: 2008,
                 season: 2,
                 episode: 7,
+                episodeTitle: "Episode Title",
                 confidence: 0.91,
                 reason: "Matched episode pattern.",
               }),
@@ -105,7 +109,14 @@ test("classify normalizes a TV show response", async () => {
 
     const result = await classifier.classify({ fileName: "show.s02e07.mp4" });
 
-    assert.deepEqual(result, { kind: "tv_show", title: "The Show", season: 2, episode: 7 });
+    assert.deepEqual(result, {
+      kind: "tv_show",
+      title: "The Show",
+      year: 2008,
+      season: 2,
+      episode: 7,
+      episodeTitle: "Episode Title",
+    });
   });
 });
 
@@ -117,16 +128,20 @@ test("classify falls back on low confidence or incomplete metadata", async () =>
       {
         kind: "film",
         title: "Maybe",
+        year: null,
         season: null,
         episode: null,
+        episodeTitle: null,
         confidence: 0.2,
         reason: "Unsure.",
       },
       {
         kind: "tv_show",
         title: "Missing Episode",
+        year: null,
         season: 1,
         episode: null,
+        episodeTitle: null,
         confidence: 0.9,
         reason: "Incomplete.",
       },

@@ -11,6 +11,7 @@ afterEach(() => {
   mock.restoreAll();
   delete process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_ADMIN_API_KEY;
+  delete process.env.TMDB_API_KEY;
   delete process.env.SETTINGS_PATH;
 });
 
@@ -40,6 +41,8 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
     assert.equal(settings.openai.apiKey, "");
     assert.equal(settings.openai.adminApiKey, "");
     assert.equal(settings.openai.model, "gpt-4o-mini");
+    assert.equal(settings.tmdb.apiKey, "");
+    assert.equal(settings.tmdb.language, "ru-RU");
     assert.equal(settings.app.logLevel, "info");
     assert.equal(settings.app.statusUpdateMinIntervalMs, 10_000);
     assert.equal(settings.app.statusUpdatePercentStep, 10);
@@ -121,6 +124,9 @@ test("redactSettings masks secrets while preserving non-secret values", () => {
         model: "model",
         instructionsPath: "/instructions.md",
       },
+      tmdb: {
+        apiKey: "tmdb-key",
+      },
     }),
   );
 
@@ -130,6 +136,7 @@ test("redactSettings masks secrets while preserving non-secret values", () => {
   assert.equal((redacted.openai as Record<string, unknown>).apiKey, "***");
   assert.equal((redacted.openai as Record<string, unknown>).adminApiKey, "***");
   assert.equal((redacted.openai as Record<string, unknown>).model, "model");
+  assert.equal((redacted.tmdb as Record<string, unknown>).apiKey, "***");
 });
 
 test("Logger filters below the configured level and passes details through", () => {
