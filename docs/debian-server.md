@@ -281,6 +281,6 @@ Defaults:
 - `--source /mnt/synology/video/bot`
 - `--dest /mnt/synology/video`
 
-The script copies files into enriched Plex paths using the migration-specific OpenAI prompt in `config/media-migration-instructions.md`, plus TMDB. Non-video files and dotfiles are ignored. TV shows are resolved once per `TVShow/<name>/` folder so every episode gets the same series match. Use `--no-enrich` for path-only parsing without network calls.
+The script moves files into enriched Plex paths using the migration-specific OpenAI prompt in `config/media-migration-instructions.md`, plus TMDB. Source and destination must be on the same filesystem (for example `/mnt/synology/video/bot` → `/mnt/synology/video`). Non-video files and dotfiles are ignored. TV shows are resolved once per `TVShow/<name>/` folder so every episode gets the same series match. Use `--no-enrich` for path-only parsing without network calls. Progress is printed as `[current/total]` in the console.
 
 After migration, change `download.directory` from `/mnt/synology/video/bot` to `/mnt/synology/video`, redeploy, scan Plex libraries, and remove the old `bot/` folder manually once verified.

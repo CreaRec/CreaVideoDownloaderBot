@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { access, copyFile, mkdir, readdir, stat } from "node:fs/promises";
+import { access, mkdir, readdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { Logger } from "../src/logger.js";
 import { buildLegacyFallbackFileName } from "../src/media-metadata.js";
@@ -14,10 +14,33 @@ interface CliOptions {
 }
 
 interface MigrationSummary {
-  copied: number;
+  total: number;
+  moved: number;
   skipped: number;
   ignored: number;
   errors: number;
+}
+
+function formatMigrationProgress(current: number, total: number, message: string): string {
+  const width = String(total).length;
+  const index = String(current).padStart(width, " ");
+  return `[${index}/${total}] ${message}`;
+}
+
+async function scanSourceTree(sourceRoot: string): Promise<{ migrationFiles: string[]; ignored: number }> {
+  const migrationFiles: string[] = [];
+  let ignored = 0;
+
+  for await (const sourcePath of walkFiles(sourceRoot)) {
+    if (isMigrationVideoFile(sourcePath)) {
+      migrationFiles.push(sourcePath);
+      continue;
+    }
+
+    ignored += 1;
+  }
+
+  return { migrationFiles, ignored };
 }
 
 async function main(): Promise<void> {
@@ -25,7 +48,7 @@ async function main(): Promise<void> {
   const settings = await loadSettings();
   const logger = new Logger(settings.app.logLevel);
   const { metadataService, migrationResolver } = createMigrationMetadataService(settings, logger);
-  const summary: MigrationSummary = { copied: 0, skipped: 0, ignored: 0, errors: 0 };
+  const summary: MigrationSummary = { total: 0, moved: 0, skipped: 0, ignored: 0, errors: 0 };
 
   const sourceRoot = path.resolve(options.source);
   const destRoot = path.resolve(options.dest);
@@ -35,37 +58,42 @@ async function main(): Promise<void> {
     noEnrich: options.noEnrich,
   });
 
-  for await (const sourcePath of walkFiles(sourceRoot)) {
+  const { migrationFiles, ignored } = await scanSourceTree(sourceRoot);
+  summary.total = migrationFiles.length;
+  summary.ignored = ignored;
+
+  console.log(`Found ${migrationFiles.length} video files to migrate (${ignored} non-video entries ignored).`);
+
+  for (let index = 0; index < migrationFiles.length; index += 1) {
+    const sourcePath = migrationFiles[index];
     const relativePath = path.relative(sourceRoot, sourcePath);
 
-    if (!isMigrationVideoFile(sourcePath)) {
-      summary.ignored += 1;
-      continue;
-    }
-
     try {
+      console.log(formatMigrationProgress(index + 1, migrationFiles.length, `resolving ${relativePath}`));
+
       const extension = path.extname(sourcePath) || ".bin";
       const fallbackFileName = buildLegacyFallbackFileName(path.basename(sourcePath));
       const metadata = await migrationResolver.resolve(relativePath, options.noEnrich);
       const destPath = metadataService.buildOutputPath(metadata, destRoot, fallbackFileName, extension);
 
       if (options.dryRun) {
-        console.log(`${sourcePath} -> ${destPath}`);
+        console.log(formatMigrationProgress(index + 1, migrationFiles.length, `DRY-RUN ${relativePath} -> ${destPath}`));
         continue;
       }
 
       if (await exists(destPath)) {
-        logger.info(`SKIP existing destination: ${destPath}`);
+        console.log(formatMigrationProgress(index + 1, migrationFiles.length, `SKIP existing destination: ${destPath}`));
         summary.skipped += 1;
         continue;
       }
 
       await mkdir(path.dirname(destPath), { recursive: true });
-      await copyFile(sourcePath, destPath);
-      logger.info(`COPIED ${sourcePath} -> ${destPath}`);
-      summary.copied += 1;
+      await rename(sourcePath, destPath);
+      console.log(formatMigrationProgress(index + 1, migrationFiles.length, `MOVED ${relativePath} -> ${destPath}`));
+      summary.moved += 1;
     } catch (error) {
       summary.errors += 1;
+      console.error(formatMigrationProgress(index + 1, migrationFiles.length, `ERROR ${relativePath}`));
       logger.error(`Failed to migrate ${sourcePath}`, error);
     }
   }
