@@ -36,7 +36,7 @@ export class OpenAIUsageService implements OpenAIUsageReporter {
 
   async createReport(rangeArg?: string): Promise<string> {
     if (!this.settings.openai.adminApiKey) {
-      return "OpenAI usage is not configured. Set OPENAI_ADMIN_API_KEY to an OpenAI admin API key.";
+      return "OpenAI usage is not configured. Set openai.adminApiKey in config/settings.json.";
     }
 
     try {

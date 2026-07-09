@@ -13,7 +13,7 @@ test("OpenAI usage service reports missing admin key without fetching", async ()
   const report = await service.createReport();
 
   assert.equal(fetchCalled, false);
-  assert.match(report, /Set OPENAI_ADMIN_API_KEY/);
+  assert.match(report, /openai\.adminApiKey in config\/settings\.json/);
 });
 
 test("OpenAI usage service aggregates costs and requests", async () => {

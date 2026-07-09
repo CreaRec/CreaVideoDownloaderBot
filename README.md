@@ -47,12 +47,12 @@ Settings:
 - `telegram.allowedUserIds`: Telegram user IDs allowed to use the bot.
 - `download.directory`: absolute or relative directory where files are saved.
 - `download.overwriteExisting`: whether existing filenames may be overwritten.
-- `openai.apiKey`: optional OpenAI API key for classifying media before saving; can also be set with `OPENAI_API_KEY`.
-- `openai.adminApiKey`: optional OpenAI admin API key for `/usage`; can also be set with `OPENAI_ADMIN_API_KEY`.
+- `openai.apiKey`: optional OpenAI API key for classifying media before saving.
+- `openai.adminApiKey`: optional OpenAI admin API key for `/usage`.
 - `openai.model`: OpenAI model used for media classification.
 - `openai.instructionsPath`: prompt file used by the media classifier.
 - `openai.usageStartDate`: optional `YYYY-MM-DD` start date for the default `/usage` report.
-- `tmdb.apiKey`: optional TMDB API key for Plex ID enrichment; can also be set with `TMDB_API_KEY`.
+- `tmdb.apiKey`: optional TMDB API key for Plex ID enrichment.
 - `tmdb.language`: TMDB language for titles and episode names, default `ru-RU`.
 - `app.logLevel`: `debug`, `info`, `warn`, or `error`.
 

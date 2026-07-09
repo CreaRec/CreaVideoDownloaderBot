@@ -111,13 +111,13 @@ export async function loadSettings(settingsPath = getSettingsPath()): Promise<Se
     },
     openai: {
       ...parsedSettings.data.openai,
-      apiKey: process.env.OPENAI_API_KEY ?? parsedSettings.data.openai.apiKey ?? "",
-      adminApiKey: process.env.OPENAI_ADMIN_API_KEY ?? parsedSettings.data.openai.adminApiKey ?? "",
+      apiKey: parsedSettings.data.openai.apiKey ?? "",
+      adminApiKey: parsedSettings.data.openai.adminApiKey ?? "",
       instructionsPath: path.resolve(parsedSettings.data.openai.instructionsPath),
     },
     tmdb: {
       ...parsedSettings.data.tmdb,
-      apiKey: process.env.TMDB_API_KEY ?? parsedSettings.data.tmdb.apiKey ?? "",
+      apiKey: parsedSettings.data.tmdb.apiKey ?? "",
     },
   };
 }

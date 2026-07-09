@@ -9,9 +9,6 @@ import { createSettings, withTempDir, writeJson } from "./helpers/test-utils.js"
 
 afterEach(() => {
   mock.restoreAll();
-  delete process.env.OPENAI_API_KEY;
-  delete process.env.OPENAI_ADMIN_API_KEY;
-  delete process.env.TMDB_API_KEY;
   delete process.env.SETTINGS_PATH;
 });
 
@@ -55,7 +52,7 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
   });
 });
 
-test("loadSettings lets OpenAI environment keys override file configuration", async () => {
+test("loadSettings reads API keys from settings.json even when environment variables are set", async () => {
   await withTempDir(async (dir) => {
     const settingsPath = path.join(dir, "settings.json");
     const settings = createSettings({
@@ -65,16 +62,21 @@ test("loadSettings lets OpenAI environment keys override file configuration", as
         model: "model",
         instructionsPath: path.join(dir, "instructions.md"),
       },
+      tmdb: {
+        apiKey: "tmdb-from-file",
+      },
     });
 
     process.env.OPENAI_API_KEY = "from-env";
     process.env.OPENAI_ADMIN_API_KEY = "admin-from-env";
+    process.env.TMDB_API_KEY = "tmdb-from-env";
     await writeJson(settingsPath, settings);
 
     const loaded = await loadSettings(settingsPath);
 
-    assert.equal(loaded.openai.apiKey, "from-env");
-    assert.equal(loaded.openai.adminApiKey, "admin-from-env");
+    assert.equal(loaded.openai.apiKey, "from-file");
+    assert.equal(loaded.openai.adminApiKey, "admin-from-file");
+    assert.equal(loaded.tmdb.apiKey, "tmdb-from-file");
   });
 });
 

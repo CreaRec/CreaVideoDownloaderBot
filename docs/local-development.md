@@ -20,8 +20,8 @@ Edit `config/settings.json`:
 - Set `telegram.botToken` and `telegram.botUsername` from BotFather.
 - Set `telegram.allowedUserIds` to your numeric Telegram user ID.
 - Set `download.directory` to the folder where videos should be saved.
-- Set `OPENAI_API_KEY` in your shell, or set `openai.apiKey` in `config/settings.json`, so the bot can classify media filenames and captions.
-- Optional: set `TMDB_API_KEY` or `tmdb.apiKey` for verified Plex metadata IDs.
+- Set `openai.apiKey` in `config/settings.json` so the bot can classify media filenames and captions.
+- Optional: set `tmdb.apiKey` for verified Plex metadata IDs.
 
 Validate the file:
 
@@ -63,5 +63,5 @@ The classifier instructions live in `config/media-classification-instructions.md
 - If GramJS cannot find the bot chat, open Telegram with the same user account and start a private chat with the bot first.
 - If downloads fail for unauthorized users, add your numeric Telegram user ID to `telegram.allowedUserIds`.
 - If files are not written, check that `download.directory` exists or that the service user can create it.
-- If every file is saved to `Undefined`, confirm `OPENAI_API_KEY` is set and check the logs for classifier errors.
-- If Plex matching is weak, confirm `TMDB_API_KEY` is set and that Plex libraries use the **Plex Movie** / **Plex TV Series** agents.
+- If every file is saved to `Undefined`, confirm `openai.apiKey` is set in `config/settings.json` and check the logs for classifier errors.
+- If Plex matching is weak, confirm `tmdb.apiKey` is set and that Plex libraries use the **Plex Movie** / **Plex TV Series** agents.
