@@ -46,7 +46,12 @@ export class MediaClassifier {
   constructor(
     private readonly settings: Settings,
     private readonly logger: Logger,
+    private readonly instructionsPath?: string,
   ) {}
+
+  getInstructionsPath(): string {
+    return this.instructionsPath ?? this.settings.openai.instructionsPath;
+  }
 
   async classify(input: MediaClassificationInput): Promise<MediaClassification> {
     if (!this.settings.openai.apiKey) {
@@ -112,7 +117,8 @@ export class MediaClassifier {
   }
 
   private getInstructions(): Promise<string> {
-    this.instructions ??= readFile(this.settings.openai.instructionsPath, "utf8");
+    const instructionsPath = this.getInstructionsPath();
+    this.instructions ??= readFile(instructionsPath, "utf8");
     return this.instructions;
   }
 }

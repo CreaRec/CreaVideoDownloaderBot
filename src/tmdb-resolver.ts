@@ -1,5 +1,6 @@
 import type { Logger } from "./logger.js";
 import type { Settings } from "./settings.js";
+import type { PlexIds } from "./plex-paths.js";
 
 const TMDB_API_BASE_URL = "https://api.themoviedb.org/3";
 
@@ -28,6 +29,12 @@ export interface TmdbTvShowMatch {
   };
 }
 
+export interface TmdbTvSeriesMatch {
+  title: string;
+  year?: number;
+  plexIds: PlexIds & { tmdb: number };
+}
+
 export type TmdbMatch = TmdbMovieMatch | TmdbTvShowMatch;
 
 export interface TmdbResolveInput {
@@ -37,6 +44,12 @@ export interface TmdbResolveInput {
   season?: number;
   episode?: number;
   episodeTitle?: string;
+}
+
+export interface TmdbTvSeriesResolveInput {
+  title: string;
+  year?: number;
+  originalTitle?: string;
 }
 
 export class TmdbResolver {
@@ -63,6 +76,59 @@ export class TmdbResolver {
       return undefined;
     } catch (error) {
       this.logger.warn("TMDB metadata resolution failed.", error);
+      return undefined;
+    }
+  }
+
+  async resolveTvSeries(input: TmdbTvSeriesResolveInput): Promise<TmdbTvSeriesMatch | undefined> {
+    if (!this.settings.tmdb.apiKey) {
+      return undefined;
+    }
+
+    try {
+      const searchResults = await this.tmdbFetch<TmdbSearchTvResponse>("/search/tv", {
+        query: input.title,
+        first_air_date_year: input.year,
+      });
+
+      const match = pickBestTvMatch(searchResults.results, input.title, input.year, input.originalTitle);
+
+      if (!match) {
+        return undefined;
+      }
+
+      const details = await this.tmdbFetch<TmdbTvDetails>(`/tv/${match.id}`, {
+        append_to_response: "external_ids",
+      });
+
+      return {
+        title: pickLocalizedTitle(details.name, details.original_name, input.originalTitle) || match.name,
+        year: getYear(details.first_air_date) ?? getYear(match.first_air_date) ?? input.year,
+        plexIds: {
+          imdb: details.external_ids?.imdb_id || undefined,
+          tmdb: details.id,
+          tvdb: details.external_ids?.tvdb_id || undefined,
+        },
+      };
+    } catch (error) {
+      this.logger.warn("TMDB TV series resolution failed.", error);
+      return undefined;
+    }
+  }
+
+  async getEpisodeTitle(tmdbShowId: number, season: number, episode: number): Promise<string | undefined> {
+    if (!this.settings.tmdb.apiKey) {
+      return undefined;
+    }
+
+    try {
+      const episodeDetails = await this.tmdbFetch<TmdbEpisodeDetails>(
+        `/tv/${tmdbShowId}/season/${season}/episode/${episode}`,
+      );
+
+      return episodeDetails.name || undefined;
+    } catch {
+      this.logger.debug(`TMDB episode lookup failed for show ${tmdbShowId} s${season}e${episode}.`);
       return undefined;
     }
   }
@@ -97,44 +163,25 @@ export class TmdbResolver {
   private async resolveTvShow(
     input: TmdbResolveInput & { season: number; episode: number },
   ): Promise<TmdbTvShowMatch | undefined> {
-    const searchResults = await this.tmdbFetch<TmdbSearchTvResponse>("/search/tv", {
-      query: input.title,
-      first_air_date_year: input.year,
+    const series = await this.resolveTvSeries({
+      title: input.title,
+      year: input.year,
     });
 
-    const match = pickBestTvMatch(searchResults.results, input.title, input.year);
-
-    if (!match) {
+    if (!series) {
       return undefined;
     }
 
-    const details = await this.tmdbFetch<TmdbTvDetails>(`/tv/${match.id}`, {
-      append_to_response: "external_ids",
-    });
-
-    let episodeTitle = input.episodeTitle;
-
-    try {
-      const episodeDetails = await this.tmdbFetch<TmdbEpisodeDetails>(
-        `/tv/${details.id}/season/${input.season}/episode/${input.episode}`,
-      );
-      episodeTitle = episodeDetails.name || episodeTitle;
-    } catch {
-      this.logger.debug(`TMDB episode lookup failed for ${details.id} s${input.season}e${input.episode}.`);
-    }
+    const episodeTitle = (await this.getEpisodeTitle(series.plexIds.tmdb, input.season, input.episode)) ?? input.episodeTitle;
 
     return {
       kind: "tv_show",
-      title: details.name || match.name,
-      year: getYear(details.first_air_date) ?? getYear(match.first_air_date) ?? input.year,
+      title: series.title,
+      year: series.year,
       season: input.season,
       episode: input.episode,
       episodeTitle,
-      plexIds: {
-        imdb: details.external_ids?.imdb_id || undefined,
-        tmdb: details.id,
-        tvdb: details.external_ids?.tvdb_id || undefined,
-      },
+      plexIds: series.plexIds,
     };
   }
 
@@ -171,7 +218,9 @@ export class TmdbResolver {
 interface TmdbSearchMovieResult {
   id: number;
   title: string;
+  original_title?: string;
   release_date?: string;
+  popularity?: number;
 }
 
 interface TmdbSearchMovieResponse {
@@ -181,7 +230,9 @@ interface TmdbSearchMovieResponse {
 interface TmdbSearchTvResult {
   id: number;
   name: string;
+  original_name?: string;
   first_air_date?: string;
+  popularity?: number;
 }
 
 interface TmdbSearchTvResponse {
@@ -203,6 +254,7 @@ interface TmdbMovieDetails {
 interface TmdbTvDetails {
   id: number;
   name: string;
+  original_name?: string;
   first_air_date?: string;
   external_ids?: TmdbExternalIds;
 }
@@ -225,35 +277,85 @@ function pickBestMovieMatch(
   const scored = results
     .map((result) => ({
       result,
-      score: scoreTitleMatch(normalizedTitle, normalizeForMatch(result.title)) + scoreYearMatch(year, getYear(result.release_date)),
+      score:
+        scoreTitleMatch(normalizedTitle, normalizeForMatch(result.title)) +
+        scoreTitleMatch(normalizedTitle, normalizeForMatch(result.original_title ?? "")) +
+        scoreYearMatch(year, getYear(result.release_date)) +
+        scorePopularity(result.popularity, !year),
     }))
-    .sort((left, right) => right.score - left.score);
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        (getYear(right.result.release_date) ?? 0) - (getYear(left.result.release_date) ?? 0),
+    );
 
-  return scored[0]?.score > 0 ? scored[0].result : results[0];
+  return scored[0]?.score > 0 ? scored[0].result : [...results].sort((left, right) => (right.popularity ?? 0) - (left.popularity ?? 0))[0];
 }
 
-function pickBestTvMatch(results: TmdbSearchTvResult[], title: string, year?: number): TmdbSearchTvResult | undefined {
+function pickBestTvMatch(
+  results: TmdbSearchTvResult[],
+  title: string,
+  year?: number,
+  originalTitle?: string,
+): TmdbSearchTvResult | undefined {
   if (results.length === 0) {
     return undefined;
   }
 
   const normalizedTitle = normalizeForMatch(title);
+  const normalizedOriginalTitle = normalizeForMatch(originalTitle ?? title);
 
   const scored = results
     .map((result) => ({
       result,
-      score: scoreTitleMatch(normalizedTitle, normalizeForMatch(result.name)) + scoreYearMatch(year, getYear(result.first_air_date)),
+      score:
+        scoreTitleMatch(normalizedOriginalTitle, normalizeForMatch(result.original_name ?? "")) * 2 +
+        scoreTitleMatch(normalizedOriginalTitle, normalizeForMatch(result.name)) +
+        scoreTitleMatch(normalizedTitle, normalizeForMatch(result.name)) +
+        scoreTitleMatch(normalizedTitle, normalizeForMatch(result.original_name ?? "")) +
+        scoreYearMatch(year, getYear(result.first_air_date)) +
+        scorePopularity(result.popularity, !year),
     }))
-    .sort((left, right) => right.score - left.score);
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        (getYear(right.result.first_air_date) ?? 0) - (getYear(left.result.first_air_date) ?? 0),
+    );
 
-  return scored[0]?.score > 0 ? scored[0].result : results[0];
+  return scored[0]?.score > 0 ? scored[0].result : [...results].sort((left, right) => (right.popularity ?? 0) - (left.popularity ?? 0))[0];
+}
+
+function pickLocalizedTitle(localizedName: string, originalName: string | undefined, preferredTitle?: string): string {
+  if (preferredTitle && containsSameWords(preferredTitle, localizedName)) {
+    return localizedName;
+  }
+
+  if (preferredTitle && originalName && containsSameWords(preferredTitle, originalName)) {
+    return preferredTitle;
+  }
+
+  return localizedName || originalName || preferredTitle || "";
+}
+
+function containsSameWords(left: string, right: string): boolean {
+  const normalizedLeft = normalizeForMatch(left);
+  const normalizedRight = normalizeForMatch(right);
+
+  return normalizedLeft.length > 0 && (normalizedLeft === normalizedRight || normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft));
 }
 
 function normalizeForMatch(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 function scoreTitleMatch(expected: string, actual: string): number {
+  if (!expected || !actual) {
+    return 0;
+  }
+
   if (expected === actual) {
     return 100;
   }
@@ -271,6 +373,14 @@ function scoreYearMatch(expected?: number, actual?: number): number {
   }
 
   return expected === actual ? 20 : 0;
+}
+
+function scorePopularity(popularity: number | undefined, enabled: boolean): number {
+  if (!enabled || !popularity) {
+    return 0;
+  }
+
+  return Math.min(popularity, 100) * 0.2;
 }
 
 function getYear(dateValue?: string): number | undefined {

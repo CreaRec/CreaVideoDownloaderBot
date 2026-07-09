@@ -2,12 +2,8 @@
 import { access, copyFile, mkdir, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { Logger } from "../src/logger.js";
-import {
-  buildLegacyFallbackFileName,
-  buildMetadataFromLegacyPath,
-  buildMetadataHintsFromLegacyPath,
-  MediaMetadataService,
-} from "../src/media-metadata.js";
+import { buildLegacyFallbackFileName } from "../src/media-metadata.js";
+import { createMigrationMetadataService, isMigrationVideoFile } from "../src/migration-metadata.js";
 import { loadSettings } from "../src/settings.js";
 
 interface CliOptions {
@@ -20,6 +16,7 @@ interface CliOptions {
 interface MigrationSummary {
   copied: number;
   skipped: number;
+  ignored: number;
   errors: number;
 }
 
@@ -27,8 +24,8 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const settings = await loadSettings();
   const logger = new Logger(settings.app.logLevel);
-  const metadataService = new MediaMetadataService(settings, logger);
-  const summary: MigrationSummary = { copied: 0, skipped: 0, errors: 0 };
+  const { metadataService, migrationResolver } = createMigrationMetadataService(settings, logger);
+  const summary: MigrationSummary = { copied: 0, skipped: 0, ignored: 0, errors: 0 };
 
   const sourceRoot = path.resolve(options.source);
   const destRoot = path.resolve(options.dest);
@@ -41,13 +38,15 @@ async function main(): Promise<void> {
   for await (const sourcePath of walkFiles(sourceRoot)) {
     const relativePath = path.relative(sourceRoot, sourcePath);
 
+    if (!isMigrationVideoFile(sourcePath)) {
+      summary.ignored += 1;
+      continue;
+    }
+
     try {
       const extension = path.extname(sourcePath) || ".bin";
       const fallbackFileName = buildLegacyFallbackFileName(path.basename(sourcePath));
-      const hints = buildMetadataHintsFromLegacyPath(relativePath);
-      const metadata = options.noEnrich
-        ? buildMetadataFromLegacyPath(relativePath)
-        : await metadataService.resolveMetadata(hints);
+      const metadata = await migrationResolver.resolve(relativePath, options.noEnrich);
       const destPath = metadataService.buildOutputPath(metadata, destRoot, fallbackFileName, extension);
 
       if (options.dryRun) {
@@ -77,6 +76,7 @@ async function main(): Promise<void> {
         source: sourceRoot,
         dest: destRoot,
         dryRun: options.dryRun,
+        noEnrich: options.noEnrich,
         ...summary,
       },
       null,

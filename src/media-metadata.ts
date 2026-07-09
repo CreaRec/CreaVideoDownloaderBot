@@ -76,6 +76,19 @@ export class MediaMetadataService {
     };
   }
 
+  async resolveShowIdentity(input: MetadataResolveInput): Promise<{ title: string; year?: number } | undefined> {
+    const classification = await this.mediaClassifier.classify(input);
+
+    if (classification.kind === "film" || classification.kind === "tv_show") {
+      return {
+        title: classification.title,
+        year: classification.year,
+      };
+    }
+
+    return undefined;
+  }
+
   buildOutputPath(metadata: PlexMetadata, rootDirectory: string, fallbackFileName: string, extension: string): string {
     if (metadata.kind === "film" && metadata.title) {
       return buildMoviePath({
