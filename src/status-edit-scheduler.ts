@@ -196,7 +196,10 @@ export class StatusEditScheduler {
 
         const retryAfter = getRetryAfterSeconds(error);
 
-        if (retryAfter === undefined) {
+        if (retryAfter !== undefined) {
+          await this.sleep(retryAfter * 1_000);
+          this.blockedUntil = Date.now();
+        } else {
           await this.sleep(1_000);
         }
       }
