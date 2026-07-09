@@ -111,6 +111,8 @@ After editing `config/settings.json`, restart the service so the app reloads the
 sudo systemctl restart telegram-video-downloader
 ```
 
+If you change `download.directory`, also refresh the installed systemd unit. Deploy substitutes that path into `ReadWritePaths` in `deploy/telegram-video-downloader.service`; a settings-only change leaves the old path in `/etc/systemd/system/telegram-video-downloader.service`. With `ProtectSystem=full`, a missing or stale path in `ReadWritePaths` prevents startup (`Failed at step NAMESPACE`, status `226`). Redeploy, or edit the unit, run `sudo systemctl daemon-reload`, and ensure the directory exists before restarting.
+
 ## Scripted Deployment
 
 To deploy or update the app without cloning the repository on the server, run this from your local project root:
@@ -230,7 +232,7 @@ For a quick operations reference, see `docs/debian-commands.md`.
 ## Notes
 
 - Keep `config/settings.json` readable only by the service user.
-- If you change `download.directory`, redeploy so `ReadWritePaths` in the installed systemd unit is updated from `deploy/telegram-video-downloader.service`.
+- If you change `download.directory`, redeploy so `ReadWritePaths` in the installed systemd unit matches `config/settings.json`. Restarting the service is not enough — verify with `sudo grep ReadWritePaths /etc/systemd/system/telegram-video-downloader.service`. The directory must exist before start.
 - The bot only processes messages from `telegram.allowedUserIds`.
 - The `/restart` command is restricted to `telegram.allowedUserIds` and depends on systemd restarting the process.
 

@@ -98,6 +98,28 @@ Restart after changing settings:
 sudo systemctl restart telegram-video-downloader
 ```
 
+If you change `download.directory`, also update `ReadWritePaths` in the installed systemd unit. The deploy script copies `download.directory` into the unit at deploy time; editing `config/settings.json` alone does not change `/etc/systemd/system/telegram-video-downloader.service`.
+
+```sh
+grep directory config/settings.json
+sudo grep ReadWritePaths /etc/systemd/system/telegram-video-downloader.service
+```
+
+Redeploy from your local machine (recommended):
+
+```sh
+./scripts/deploy.sh
+```
+
+Or edit the unit on the server, then reload:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl restart telegram-video-downloader
+```
+
+The path in `ReadWritePaths` must exist on disk before the service starts. With `ProtectSystem=full`, a missing directory causes `Failed at step NAMESPACE` / exit status `226` and the service will not start even if Node.js is installed.
+
 ## Deploy Or Update
 
 From your local project root:
@@ -141,3 +163,9 @@ npm --version
 ```
 
 For this project, Node.js should be at least `v22.9.0` and npm should be `11.16.0` or newer.
+
+Service fails with `Failed at step NAMESPACE` or `Failed to set up mount namespacing` (status `226`):
+
+- Compare `download.directory` in settings with `ReadWritePaths` in the unit — they often diverge after a settings-only change.
+- Ensure the download directory exists, for example `ls -la /mnt/synology/video`.
+- Redeploy or update the unit, then `sudo systemctl daemon-reload` and restart.
