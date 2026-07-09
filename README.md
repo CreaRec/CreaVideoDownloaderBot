@@ -90,8 +90,6 @@ The classifier uses both the Telegram filename and message caption/description. 
 
 If OpenAI is not configured or classification fails, files are saved under `Undefined`. When `download.overwriteExisting` is `false`, the app picks an available filename instead of replacing an existing file.
 
-To migrate an existing `bot/Film` and `bot/TVShow` library, use `npx tsx scripts/migrate-to-plex.ts` on the server.
-
 For detailed local usage, see [docs/local-development.md](docs/local-development.md).
 
 ## Deployment

@@ -265,22 +265,3 @@ Plex libraries:
 - TV Shows → `/mnt/synology/video/TV Shows`
 
 Get a free TMDB API key from <https://www.themoviedb.org/settings/api>.
-
-### Migrating From `bot/Film` and `bot/TVShow`
-
-After deploying the Plex layout update:
-
-```sh
-cd /home/crearec/crea-video-downloader-bot
-npx tsx scripts/migrate-to-plex.ts --dry-run
-npx tsx scripts/migrate-to-plex.ts
-```
-
-Defaults:
-
-- `--source /mnt/synology/video/bot`
-- `--dest /mnt/synology/video`
-
-The script moves files into enriched Plex paths using the migration-specific OpenAI prompt in `config/media-migration-instructions.md`, plus TMDB. Source and destination must be on the same filesystem (for example `/mnt/synology/video/bot` → `/mnt/synology/video`). Non-video files and dotfiles are ignored. TV shows are resolved once per `TVShow/<name>/` folder so every episode gets the same series match. Use `--no-enrich` for path-only parsing without network calls. Progress is printed as `[current/total]` in the console.
-
-After migration, change `download.directory` from `/mnt/synology/video/bot` to `/mnt/synology/video`, redeploy, scan Plex libraries, and remove the old `bot/` folder manually once verified.

@@ -1,7 +1,6 @@
 import type { Logger } from "./logger.js";
 import type { MediaClassificationInput } from "./media-classifier.js";
 import { MediaClassifier } from "./media-classifier.js";
-import path from "node:path";
 import type { Settings } from "./settings.js";
 import { buildMoviePath, buildTvShowPath, buildUndefinedPath, sanitizeLegacyFileName, type PlexIds } from "./plex-paths.js";
 import { TmdbResolver } from "./tmdb-resolver.js";
@@ -76,19 +75,6 @@ export class MediaMetadataService {
     };
   }
 
-  async resolveShowIdentity(input: MetadataResolveInput): Promise<{ title: string; year?: number } | undefined> {
-    const classification = await this.mediaClassifier.classify(input);
-
-    if (classification.kind === "film" || classification.kind === "tv_show") {
-      return {
-        title: classification.title,
-        year: classification.year,
-      };
-    }
-
-    return undefined;
-  }
-
   buildOutputPath(metadata: PlexMetadata, rootDirectory: string, fallbackFileName: string, extension: string): string {
     if (metadata.kind === "film" && metadata.title) {
       return buildMoviePath({
@@ -119,101 +105,6 @@ export class MediaMetadataService {
 
 export function formatDisplayTitle(title: string, year?: number): string {
   return year ? `${title} (${year})` : title;
-}
-
-export function buildMetadataHintsFromLegacyPath(relativePath: string): MetadataResolveInput {
-  const normalized = relativePath.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-
-  if (parts[0] === "Film" && parts.length >= 2) {
-    const fileName = parts[parts.length - 1];
-    return { fileName, description: humanizeLegacyName(pathBaseName(fileName)) };
-  }
-
-  if (parts[0] === "TVShow" && parts.length >= 4) {
-    const showName = humanizeLegacyName(parts[1]);
-    const seasonMatch = parts[2].match(/^Season_(\d+)$/i);
-    const episodeFile = pathBaseName(parts[3]);
-    const episodeMatch = episodeFile.match(/^(\d+)/);
-
-    const description = [
-      showName,
-      seasonMatch ? `Season ${seasonMatch[1]}` : undefined,
-      episodeMatch ? `Episode ${episodeMatch[1]}` : undefined,
-    ]
-      .filter(Boolean)
-      .join(", ");
-
-    return { fileName: parts[3], description };
-  }
-
-  if (parts[0] === "Undefined" && parts.length >= 2) {
-    return { fileName: parts[parts.length - 1] };
-  }
-
-  return { fileName: parts[parts.length - 1] };
-}
-
-function humanizeLegacyName(value: string): string {
-  return value.replace(/_/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function pathBaseName(filePath: string): string {
-  const index = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
-
-  return index >= 0 ? filePath.slice(index + 1) : filePath;
-}
-
-export function buildMetadataFromLegacyPath(relativePath: string): PlexMetadata {
-  const normalized = relativePath.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-
-  if (parts[0] === "Film" && parts.length >= 2) {
-    const fileName = parts[parts.length - 1];
-    const baseName = pathBaseName(fileName).replace(path.extname(fileName), "");
-    const title = humanizeLegacyName(baseName);
-    const year = extractYearFromText(baseName);
-
-    return {
-      kind: "film",
-      title,
-      displayTitle: formatDisplayTitle(title, year),
-      year,
-    };
-  }
-
-  if (parts[0] === "TVShow" && parts.length >= 4) {
-    const showName = humanizeLegacyName(parts[1]);
-    const seasonMatch = parts[2].match(/^Season_(\d+)$/i);
-    const episodeFile = pathBaseName(parts[3]);
-    const episodeMatch = episodeFile.match(/^(\d+)/);
-    const season = seasonMatch ? Number.parseInt(seasonMatch[1], 10) : undefined;
-    const episode = episodeMatch ? Number.parseInt(episodeMatch[1], 10) : undefined;
-    const year = extractYearFromText(showName);
-
-    if (season && episode) {
-      return {
-        kind: "tv_show",
-        title: showName,
-        displayTitle: formatDisplayTitle(showName, year),
-        year,
-        season,
-        episode,
-      };
-    }
-  }
-
-  return { kind: "undefined", reason: "Legacy path did not contain enough metadata." };
-}
-
-function extractYearFromText(value: string): number | undefined {
-  const match = value.match(/\b(19|20)\d{2}\b/);
-
-  if (!match) {
-    return undefined;
-  }
-
-  return Number.parseInt(match[0], 10);
 }
 
 export function buildLegacyFallbackFileName(fileName: string): string {

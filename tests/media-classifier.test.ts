@@ -17,13 +17,6 @@ test("classify returns undefined without an OpenAI API key", async () => {
   assert.deepEqual(result, { kind: "undefined", reason: "OpenAI API key is not configured." });
 });
 
-test("classifier honors an instructionsPath override", () => {
-  const overridePath = "/custom/instructions.md";
-  const classifier = new MediaClassifier(createSettings(), createLoggerSpy(), overridePath);
-
-  assert.equal(classifier.getInstructionsPath(), overridePath);
-});
-
 test("classify sends the configured request and normalizes a film response", async () => {
   await withTempDir(async (dir) => {
     const instructionsPath = path.join(dir, "instructions.md");

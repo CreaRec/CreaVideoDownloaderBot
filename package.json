@@ -11,7 +11,6 @@
     "start": "node dist/index.js",
     "login": "tsx src/login.ts",
     "validate:settings": "tsx src/validate-settings.ts",
-    "migrate:plex": "tsx scripts/migrate-to-plex.ts",
     "test": "node --import tsx --test \"tests/**/*.test.ts\""
   },
   "engines": {
