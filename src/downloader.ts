@@ -4,10 +4,11 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import type { Logger } from "./logger.js";
 import { buildLegacyFallbackFileName, MediaMetadataService } from "./media-metadata.js";
-import type { Settings } from "./settings.js";
+import { getConfiguredUserSessions, getMissingSessionUserIds, getUserSession, type Settings } from "./settings.js";
 
 export interface DownloadRequest {
   botMessageId: number;
+  telegramUserId: number;
   suggestedFileName?: string;
   mediaKind: "video" | "document";
   receivedAt?: number;
@@ -39,47 +40,63 @@ export function isDownloadCanceled(error: unknown): error is DownloadCanceledErr
   return error instanceof DownloadCanceledError;
 }
 
+interface UserDownloadClient {
+  client: TelegramClient;
+  botEntity: unknown;
+}
+
 export class TelegramDownloader {
-  private readonly client: TelegramClient;
-  private botEntity: unknown;
+  private readonly userClients = new Map<number, UserDownloadClient>();
 
   constructor(
     private readonly settings: Settings,
     private readonly logger: Logger,
     private readonly mediaMetadataService: MediaMetadataService,
-  ) {
-    this.client = new TelegramClient(
-      new StringSession(settings.telegram.stringSession),
-      settings.telegram.apiId,
-      settings.telegram.apiHash,
-      { connectionRetries: 5 },
-    );
-  }
+  ) {}
 
   async start(): Promise<void> {
-    if (!this.settings.telegram.stringSession) {
-      throw new Error("telegram.stringSession is empty. Run npm run login before starting the service.");
+    const missingSessionUserIds = getMissingSessionUserIds(this.settings);
+
+    if (missingSessionUserIds.length > 0) {
+      const userIds = missingSessionUserIds.join(", ");
+      throw new Error(
+        `Missing GramJS sessions for Telegram user IDs: ${userIds}. Run npm run login -- --user-id <telegram_user_id> for each user.`,
+      );
     }
 
     await mkdir(this.settings.download.directory, { recursive: true });
-    await this.client.connect();
-    this.botEntity = await this.client.getEntity(`@${this.settings.telegram.botUsername}`);
-    this.logger.info("GramJS client connected.");
+
+    for (const { userId, session } of getConfiguredUserSessions(this.settings)) {
+      const client = new TelegramClient(
+        new StringSession(session),
+        this.settings.telegram.apiId,
+        this.settings.telegram.apiHash,
+        { connectionRetries: 5 },
+      );
+
+      await client.connect();
+      const botEntity = await client.getEntity(`@${this.settings.telegram.botUsername}`);
+      this.userClients.set(userId, { client, botEntity });
+      this.logger.info(`GramJS client connected for user ${userId}.`);
+    }
   }
 
   async stop(): Promise<void> {
-    await this.client.disconnect();
-    this.logger.info("GramJS client disconnected.");
+    await Promise.all(
+      [...this.userClients.values()].map(async ({ client }) => {
+        await client.disconnect();
+      }),
+    );
+    this.userClients.clear();
+    this.logger.info("GramJS clients disconnected.");
   }
 
   async downloadFromBotMessage(request: DownloadRequest): Promise<DownloadResult> {
-    if (!this.botEntity) {
-      throw new Error("Downloader has not been started.");
-    }
+    const userClient = this.getUserClient(request.telegramUserId);
 
     throwIfDownloadCanceled(request.signal);
 
-    const message = await this.getDownloadableBotMessage(request);
+    const message = await this.getDownloadableBotMessage(userClient, request);
 
     if (!hasDownloadableMedia(message)) {
       throw new Error(`Telegram message ${request.botMessageId} does not contain downloadable media.`);
@@ -92,7 +109,7 @@ export class TelegramDownloader {
     await request.onOutputPath?.(outputPath);
     throwIfDownloadCanceled(request.signal);
 
-    await this.client.downloadMedia(message as never, {
+    await userClient.client.downloadMedia(message as never, {
       outputFile: outputPath,
       progressCallback: (downloaded: unknown, total: unknown) => {
         throwIfDownloadCanceled(request.signal);
@@ -111,8 +128,27 @@ export class TelegramDownloader {
     };
   }
 
-  private async getDownloadableBotMessage(request: DownloadRequest): Promise<GramMessage | undefined> {
-    const directMessage = await this.getBotMessage(request.botMessageId);
+  private getUserClient(telegramUserId: number): UserDownloadClient {
+    const userClient = this.userClients.get(telegramUserId);
+
+    if (!userClient) {
+      if (!getUserSession(this.settings, telegramUserId)) {
+        throw new Error(
+          `No GramJS session for user ${telegramUserId}. Run: npm run login -- --user-id ${telegramUserId}`,
+        );
+      }
+
+      throw new Error("Downloader has not been started.");
+    }
+
+    return userClient;
+  }
+
+  private async getDownloadableBotMessage(
+    userClient: UserDownloadClient,
+    request: DownloadRequest,
+  ): Promise<GramMessage | undefined> {
+    const directMessage = await this.getBotMessage(userClient, request.botMessageId);
 
     if (hasDownloadableMedia(directMessage)) {
       return directMessage;
@@ -122,11 +158,11 @@ export class TelegramDownloader {
       message: summarizeGramMessage(directMessage),
     });
 
-    return this.findRecentOutgoingBotMedia(request);
+    return this.findRecentOutgoingBotMedia(userClient, request);
   }
 
-  private async getBotMessage(messageId: number): Promise<GramMessage | undefined> {
-    const result = await this.client.getMessages(this.botEntity as never, {
+  private async getBotMessage(userClient: UserDownloadClient, messageId: number): Promise<GramMessage | undefined> {
+    const result = await userClient.client.getMessages(userClient.botEntity as never, {
       ids: messageId,
     } as never);
 
@@ -137,10 +173,13 @@ export class TelegramDownloader {
     return result as GramMessage | undefined;
   }
 
-  private async findRecentOutgoingBotMedia(request: DownloadRequest): Promise<GramMessage | undefined> {
+  private async findRecentOutgoingBotMedia(
+    userClient: UserDownloadClient,
+    request: DownloadRequest,
+  ): Promise<GramMessage | undefined> {
     let fallback: GramMessage | undefined;
 
-    for await (const candidate of this.client.iterMessages(this.botEntity as never, {
+    for await (const candidate of userClient.client.iterMessages(userClient.botEntity as never, {
       fromUser: "me",
       limit: 25,
     } as never)) {

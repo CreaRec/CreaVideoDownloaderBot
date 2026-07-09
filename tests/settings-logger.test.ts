@@ -20,7 +20,9 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
       telegram: {
         apiId: 123456,
         apiHash: "api-hash",
-        stringSession: "session",
+        userSessions: {
+          "1234": "session",
+        },
         botToken: "123:bot-token",
         botUsername: "test_bot",
         allowedUserIds: [1234],
@@ -49,6 +51,54 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
       path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), "data"),
     );
     assert.equal(settings.openai.instructionsPath, path.resolve("config/media-classification-instructions.md"));
+    assert.deepEqual(settings.telegram.userSessions, { "1234": "session" });
+  });
+});
+
+test("loadSettings migrates legacy stringSession into userSessions for the first allowed user", async () => {
+  await withTempDir(async (dir) => {
+    const settingsPath = path.join(dir, "settings.json");
+
+    await writeJson(settingsPath, {
+      telegram: {
+        apiId: 123456,
+        apiHash: "api-hash",
+        stringSession: "legacy-session",
+        botToken: "123:bot-token",
+        botUsername: "test_bot",
+        allowedUserIds: [1234, 5678],
+      },
+      download: {
+        directory: "downloads",
+      },
+    });
+
+    const settings = await loadSettings(settingsPath);
+
+    assert.deepEqual(settings.telegram.userSessions, {
+      "1234": "legacy-session",
+    });
+  });
+});
+
+test("loadSettings rejects settings without any configured GramJS sessions", async () => {
+  await withTempDir(async (dir) => {
+    const settingsPath = path.join(dir, "settings.json");
+
+    await writeJson(settingsPath, {
+      telegram: {
+        apiId: 123456,
+        apiHash: "api-hash",
+        botToken: "123:bot-token",
+        botUsername: "test_bot",
+        allowedUserIds: [1234],
+      },
+      download: {
+        directory: "downloads",
+      },
+    });
+
+    await assert.rejects(loadSettings(settingsPath), /No GramJS user sessions configured/);
   });
 });
 
@@ -118,7 +168,10 @@ test("redactSettings masks secrets while preserving non-secret values", () => {
   const redacted = redactSettings(
     createSettings({
       telegram: {
-        stringSession: "session",
+        userSessions: {
+          "1234": "session",
+          "5678": "other-session",
+        },
       },
       openai: {
         apiKey: "openai-key",
@@ -134,7 +187,10 @@ test("redactSettings masks secrets while preserving non-secret values", () => {
 
   assert.equal((redacted.telegram as Record<string, unknown>).apiHash, "***");
   assert.equal((redacted.telegram as Record<string, unknown>).botToken, "***");
-  assert.equal((redacted.telegram as Record<string, unknown>).stringSession, "***");
+  assert.deepEqual((redacted.telegram as Record<string, unknown>).userSessions, {
+    "1234": "***",
+    "5678": "***",
+  });
   assert.equal((redacted.openai as Record<string, unknown>).apiKey, "***");
   assert.equal((redacted.openai as Record<string, unknown>).adminApiKey, "***");
   assert.equal((redacted.openai as Record<string, unknown>).model, "model");

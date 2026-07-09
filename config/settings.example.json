@@ -2,7 +2,9 @@
   "telegram": {
     "apiId": 123456,
     "apiHash": "your_telegram_api_hash",
-    "stringSession": "",
+    "userSessions": {
+      "123456789": ""
+    },
     "botToken": "123456789:your_bot_token",
     "botUsername": "your_bot_username_without_at",
     "allowedUserIds": [123456789]

@@ -9,7 +9,9 @@ export function createSettings(overrides: PartialSettings = {}): Settings {
     telegram: {
       apiId: 123456,
       apiHash: "api-hash",
-      stringSession: "",
+      userSessions: {
+        "1234": "session",
+      },
       botToken: "123:bot-token",
       botUsername: "test_bot",
       allowedUserIds: [1234],

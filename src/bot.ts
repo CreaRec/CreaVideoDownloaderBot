@@ -150,10 +150,11 @@ export class BotService {
 
     const fileName = getDisplayFileName(message);
     const statusMessage = await this.safeReply(reply, `Download started: ${fileName}`);
-    void this.runDownloadWithConcurrency(message, chatId, reply, statusMessage?.message_id);
+    void this.runDownloadWithConcurrency(fromUserId, message, chatId, reply, statusMessage?.message_id);
   }
 
   private async runDownloadWithConcurrency(
+    fromUserId: number,
     message: DownloadableMessage,
     chatId: number,
     reply: ReplyFn,
@@ -174,13 +175,14 @@ export class BotService {
     await this.downloadSemaphore.acquire();
 
     try {
-      await this.downloadAndNotify(message, chatId, reply, statusMessageId);
+      await this.downloadAndNotify(fromUserId, message, chatId, reply, statusMessageId);
     } finally {
       this.downloadSemaphore.release();
     }
   }
 
   private async downloadAndNotify(
+    fromUserId: number,
     message: DownloadableMessage,
     chatId: number,
     reply: ReplyFn,
@@ -212,6 +214,7 @@ export class BotService {
       const suggestedFileName = getSuggestedFileName(message);
       const result = await this.downloader.downloadFromBotMessage({
         botMessageId: message.message_id,
+        telegramUserId: fromUserId,
         mediaKind: "video" in message ? "video" : "document",
         suggestedFileName,
         receivedAt: message.date,
@@ -448,7 +451,7 @@ export class BotService {
     }
   }
 
-  private isAllowed(userId: number | undefined): boolean {
+  private isAllowed(userId: number | undefined): userId is number {
     return userId !== undefined && this.allowedUserIds.has(userId);
   }
 

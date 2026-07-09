@@ -277,8 +277,10 @@ test("confirming delete aborts the active download and suppresses failed status"
     const outputRegistered = new Promise<void>((resolve) => {
       resolveOutputRegistered = resolve;
     });
+    let capturedTelegramUserId: number | undefined;
     const fakeDownloader = {
       async downloadFromBotMessage(request: DownloadRequest) {
+        capturedTelegramUserId = request.telegramUserId;
         capturedSignal = request.signal;
         await mkdir(path.dirname(outputPath), { recursive: true });
         await writeFile(outputPath, "partial", "utf8");
@@ -319,6 +321,7 @@ test("confirming delete aborts the active download and suppresses failed status"
     const downloadAndNotify = (
       service as unknown as {
         downloadAndNotify: (
+          fromUserId: number,
           message: unknown,
           chatId: number,
           reply: (message: string) => Promise<{ message_id?: number }>,
@@ -333,6 +336,7 @@ test("confirming delete aborts the active download and suppresses failed status"
     ).handleDeleteButton.bind(service);
 
     const downloadPromise = downloadAndNotify(
+      1234,
       {
         message_id: 10,
         date: 1_000,
@@ -344,6 +348,7 @@ test("confirming delete aborts the active download and suppresses failed status"
     );
 
     await outputRegistered;
+    assert.equal(capturedTelegramUserId, 1234);
 
     const deleteCallbackData = edits
       .flatMap((edit) => edit.extra?.reply_markup.inline_keyboard[0] ?? [])

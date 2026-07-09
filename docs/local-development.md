@@ -29,15 +29,17 @@ Validate the file:
 npm run validate:settings
 ```
 
-## 3. Create The GramJS Session
+## 3. Create GramJS Sessions
 
-Run:
+Run once for each user in `telegram.allowedUserIds`:
 
 ```sh
-npm run login
+npm run login -- --user-id <telegram_user_id>
 ```
 
-The script will ask for your Telegram phone number, login code, and two-step verification password if your account uses one. It saves the generated GramJS string session into `config/settings.json`.
+If `--user-id` is omitted, the script uses the first entry in `telegram.allowedUserIds`.
+
+The script will ask for that user's Telegram phone number, login code, and two-step verification password if the account uses one. It saves the generated GramJS string session into `telegram.userSessions` in `config/settings.json`.
 
 Keep `config/settings.json` private.
 
@@ -61,7 +63,9 @@ The classifier instructions live in `config/media-classification-instructions.md
 
 - If the service says the settings file cannot be read, confirm `config/settings.json` exists or set `SETTINGS_PATH=/path/to/settings.json`.
 - If GramJS cannot find the bot chat, open Telegram with the same user account and start a private chat with the bot first.
-- If downloads fail for unauthorized users, add your numeric Telegram user ID to `telegram.allowedUserIds`.
+- If downloads fail for unauthorized users, add the numeric Telegram user ID to `telegram.allowedUserIds`.
+- If downloads fail for an allowed user with `does not contain downloadable media`, create or refresh that user's GramJS session with `npm run login -- --user-id <telegram_user_id>` and restart the service.
+- If the service fails to start with missing GramJS sessions, run `npm run login -- --user-id <telegram_user_id>` for every user listed in `telegram.allowedUserIds`.
 - If files are not written, check that `download.directory` exists or that the service user can create it.
 - If every file is saved to `Undefined`, confirm `openai.apiKey` is set in `config/settings.json` and check the logs for classifier errors.
 - If Plex matching is weak, confirm `tmdb.apiKey` is set and that Plex libraries use the **Plex Movie** / **Plex TV Series** agents.

@@ -14,7 +14,7 @@ test("downloadFromBotMessage requires the downloader to be started", async () =>
   );
 
   await assert.rejects(
-    downloader.downloadFromBotMessage({ botMessageId: 1, mediaKind: "video" }),
+    downloader.downloadFromBotMessage({ botMessageId: 1, telegramUserId: 1234, mediaKind: "video" }),
     /Downloader has not been started/,
   );
 });
@@ -40,6 +40,7 @@ test("downloadFromBotMessage saves classified films, avoids collisions, and repo
 
     const result = await downloader.downloadFromBotMessage({
       botMessageId: 10,
+      telegramUserId: 1234,
       mediaKind: "video",
       suggestedFileName: 'bad:name?.mp4',
       onOutputPath: (outputPath) => {
@@ -75,11 +76,13 @@ test("downloadFromBotMessage saves TV shows and undefined classifications into e
 
     const tvResult = await tvDownloader.downloadFromBotMessage({
       botMessageId: 11,
+      telegramUserId: 1234,
       mediaKind: "document",
       suggestedFileName: "episode.mkv",
     });
     const undefinedResult = await undefinedDownloader.downloadFromBotMessage({
       botMessageId: 12,
+      telegramUserId: 1234,
       mediaKind: "document",
       suggestedFileName: "bad/name?.mkv",
     });
@@ -107,6 +110,7 @@ test("downloadFromBotMessage can overwrite existing classified output", async ()
 
     const result = await downloader.downloadFromBotMessage({
       botMessageId: 13,
+      telegramUserId: 1234,
       mediaKind: "video",
       suggestedFileName: "same.mp4",
     });
@@ -128,6 +132,7 @@ test("downloadFromBotMessage cancels when the abort signal is triggered during p
     await assert.rejects(
       downloader.downloadFromBotMessage({
         botMessageId: 14,
+        telegramUserId: 1234,
         mediaKind: "video",
         suggestedFileName: "canceled.mp4",
         signal: controller.signal,
@@ -155,6 +160,7 @@ test("downloadFromBotMessage cancels before starting when the abort signal is al
     await assert.rejects(
       downloader.downloadFromBotMessage({
         botMessageId: 15,
+        telegramUserId: 1234,
         mediaKind: "video",
         signal: controller.signal,
       }),
@@ -181,6 +187,7 @@ test("downloadFromBotMessage falls back to recent outgoing bot media when direct
 
     await downloader.downloadFromBotMessage({
       botMessageId: 20,
+      telegramUserId: 1234,
       mediaKind: "document",
       suggestedFileName: "fallback.bin",
       receivedAt: 1000,
@@ -203,10 +210,70 @@ test("downloadFromBotMessage fails when no downloadable media can be found", asy
     });
 
     await assert.rejects(
-      downloader.downloadFromBotMessage({ botMessageId: 30, mediaKind: "document", receivedAt: 1000 }),
+      downloader.downloadFromBotMessage({
+        botMessageId: 30,
+        telegramUserId: 1234,
+        mediaKind: "document",
+        receivedAt: 1000,
+      }),
       /Telegram message 30 does not contain downloadable media/,
     );
   });
+});
+
+test("downloadFromBotMessage routes downloads through the sender user session", async () => {
+  await withTempDir(async (dir) => {
+    const ownerClient = createFakeClient({ messages: [{ id: 40, media: media("MessageMediaDocument") }] });
+    const otherClient = createFakeClient({ messages: [{ id: 41, media: media("MessageMediaDocument") }] });
+    const downloader = new TelegramDownloader(
+      createSettings({
+        download: { directory: dir },
+        telegram: {
+          allowedUserIds: [1234, 5678],
+          userSessions: {
+            "1234": "owner-session",
+            "5678": "other-session",
+          },
+        },
+      }),
+      createLoggerSpy(),
+      createMetadataService({ kind: "undefined", reason: "unknown" }) as never,
+    );
+
+    Object.assign(downloader as unknown as { userClients: Map<number, { client: FakeClient; botEntity: unknown }> }, {
+      userClients: new Map([
+        [1234, { client: ownerClient, botEntity: { id: "bot-owner" } }],
+        [5678, { client: otherClient, botEntity: { id: "bot-other" } }],
+      ]),
+    });
+
+    await downloader.downloadFromBotMessage({
+      botMessageId: 41,
+      telegramUserId: 5678,
+      mediaKind: "document",
+      suggestedFileName: "other-user.bin",
+    });
+
+    assert.equal(otherClient.downloadedMessage?.id, 41);
+    assert.equal(ownerClient.downloadedMessage, undefined);
+  });
+});
+
+test("start fails when allowed users are missing GramJS sessions", async () => {
+  const downloader = new TelegramDownloader(
+    createSettings({
+      telegram: {
+        allowedUserIds: [1234, 5678],
+        userSessions: {
+          "1234": "owner-session",
+        },
+      },
+    }),
+    createLoggerSpy(),
+    createMetadataService({ kind: "undefined", reason: "unknown" }) as never,
+  );
+
+  await assert.rejects(downloader.start(), /Missing GramJS sessions for Telegram user IDs: 5678/);
 });
 
 function createStartedDownloader(options: {
@@ -214,21 +281,28 @@ function createStartedDownloader(options: {
   metadata: PlexMetadata;
   client: FakeClient;
   overwriteExisting?: boolean;
+  telegramUserId?: number;
 }): TelegramDownloader {
+  const telegramUserId = options.telegramUserId ?? 1234;
   const downloader = new TelegramDownloader(
     createSettings({
       download: {
         directory: options.downloadDirectory,
         overwriteExisting: options.overwriteExisting ?? false,
       },
+      telegram: {
+        allowedUserIds: [telegramUserId],
+        userSessions: {
+          [String(telegramUserId)]: "session",
+        },
+      },
     }),
     createLoggerSpy(),
     createMetadataService(options.metadata) as never,
   );
 
-  Object.assign(downloader as unknown as { client: FakeClient; botEntity: unknown }, {
-    client: options.client,
-    botEntity: { id: "bot" },
+  Object.assign(downloader as unknown as { userClients: Map<number, { client: FakeClient; botEntity: unknown }> }, {
+    userClients: new Map([[telegramUserId, { client: options.client, botEntity: { id: "bot" } }]]),
   });
 
   return downloader;

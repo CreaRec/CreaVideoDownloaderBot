@@ -65,18 +65,28 @@ Validate settings:
 sudo -u telegramvideo npm run validate:settings
 ```
 
-## 5. Create The GramJS Session
+## 5. Create GramJS Sessions
 
-Run the login helper on the server:
+Run the login helper on the server for each user in `telegram.allowedUserIds`:
 
 ```sh
 cd /opt/telegram-video-downloader
-sudo -u telegramvideo npm run login
+sudo -u telegramvideo npm run login -- --user-id <telegram_user_id>
 ```
 
-Complete the Telegram login prompts. The script writes `telegram.stringSession` into `config/settings.json`.
+If `--user-id` is omitted, the script uses the first entry in `telegram.allowedUserIds`.
 
-You can also run `npm run login` locally and copy the resulting `telegram.stringSession` value into the server settings file.
+Complete the Telegram login prompts for that user's account. The script writes the session into `telegram.userSessions` in `config/settings.json` without overwriting other users' sessions.
+
+You can also run `npm run login` locally and copy the resulting `telegram.userSessions` entry into the server settings file.
+
+After adding or updating a session, restart the service:
+
+```sh
+sudo systemctl restart telegram-video-downloader
+```
+
+Existing deployments with the legacy `telegram.stringSession` field are migrated automatically to `userSessions` for the first `allowedUserIds` entry on startup.
 
 ## 6. Install The systemd Unit
 
@@ -234,6 +244,7 @@ For a quick operations reference, see `docs/debian-commands.md`.
 - Keep `config/settings.json` readable only by the service user.
 - If you change `download.directory`, redeploy so `ReadWritePaths` in the installed systemd unit matches `config/settings.json`. Restarting the service is not enough — verify with `sudo grep ReadWritePaths /etc/systemd/system/telegram-video-downloader.service`. The directory must exist before start.
 - The bot only processes messages from `telegram.allowedUserIds`.
+- Each allowed user must have a GramJS session in `telegram.userSessions`. Run `npm run login -- --user-id <telegram_user_id>` for every user who should be able to download files.
 - The `/restart` command is restricted to `telegram.allowedUserIds` and depends on systemd restarting the process.
 
 ## Plex + Synology Storage
