@@ -77,8 +77,6 @@ If `--user-id` is omitted and exactly one user exists in `telegram.userSessions`
 
 Complete the Telegram login prompts for that user's account. The script writes the session into `telegram.userSessions` in `config/settings.json` without overwriting other users' sessions.
 
-You can also run `npm run login` locally and copy the resulting `telegram.userSessions` entry into the server settings file.
-
 After adding or updating a session, restart the service:
 
 ```sh

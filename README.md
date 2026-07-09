@@ -57,14 +57,18 @@ Settings:
 
 ## Quick Start
 
+Install and run the bot on a Debian server. See [docs/debian-server.md](docs/debian-server.md) for the full guide.
+
 ```sh
 npm install
 cp config/settings.example.json config/settings.json
+npm run validate:settings
 npm run login -- --user-id <your_telegram_user_id>
-npm run dev
+npm run build
+sudo systemctl start telegram-video-downloader
 ```
 
-For each additional user, run `npm run login -- --user-id <their_telegram_user_id>` with that person's phone number and login code.
+For each additional user, run `npm run login -- --user-id <their_telegram_user_id>` on the server with that person's phone number and login code.
 
 Send or forward a video to your bot from a user listed in `telegram.userSessions`. The service will save the media to `download.directory`.
 
@@ -91,11 +95,20 @@ The classifier uses both the Telegram filename and message caption/description. 
 
 If OpenAI is not configured or classification fails, files are saved under `Undefined`. When `download.overwriteExisting` is `false`, the app picks an available filename instead of replacing an existing file.
 
-For detailed local usage, see [docs/local-development.md](docs/local-development.md).
+## Development
+
+Run tests locally while working on the code. The bot itself is not started on your machine.
+
+```sh
+npm install
+npm test
+```
+
+`./scripts/deploy.sh` also runs `npm test` before syncing to the server.
 
 ## Deployment
 
-For Debian server setup and updates, see [docs/debian-server.md](docs/debian-server.md). From your dev machine:
+For Debian server setup and updates, see [docs/debian-server.md](docs/debian-server.md). From your project checkout:
 
 ```sh
 ./scripts/deploy.sh
