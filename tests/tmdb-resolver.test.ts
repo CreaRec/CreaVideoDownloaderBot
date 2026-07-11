@@ -218,3 +218,105 @@ test("resolve prefers the more popular Passengers release when year is missing",
   assert.equal(result?.year, 2016);
   assert.equal(result?.plexIds.tmdb, 274870);
 });
+
+test("searchCandidates returns ranked film matches and respects limit", async () => {
+  mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+    const pathName = new URL(url).pathname;
+
+    if (pathName === "/3/search/movie") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: [
+            { id: 1, title: "Other", release_date: "2001-01-01", popularity: 90 },
+            { id: 27205, title: "Inception", release_date: "2010-07-16", popularity: 40 },
+            { id: 3, title: "Inception Remix", release_date: "2011-01-01", popularity: 10 },
+          ],
+        }),
+      };
+    }
+
+    throw new Error(`Unexpected TMDB path: ${pathName}`);
+  });
+
+  const resolver = new TmdbResolver(createSettings({ tmdb: { apiKey: "tmdb-key" } }), createLoggerSpy());
+  const candidates = await resolver.searchCandidates({
+    kind: "film",
+    title: "Inception",
+    year: 2010,
+    limit: 2,
+  });
+
+  assert.equal(candidates.length, 2);
+  assert.equal(candidates[0].tmdbId, 27205);
+  assert.equal(candidates[0].title, "Inception");
+  assert.equal(candidates[0].year, 2010);
+  assert.equal(candidates[0].kind, "film");
+});
+
+test("searchCandidates returns a single TV candidate when only one match exists", async () => {
+  mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+    const pathName = new URL(url).pathname;
+
+    if (pathName === "/3/search/tv") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: [{ id: 1396, name: "Breaking Bad", first_air_date: "2008-01-20", popularity: 80 }],
+        }),
+      };
+    }
+
+    throw new Error(`Unexpected TMDB path: ${pathName}`);
+  });
+
+  const resolver = new TmdbResolver(createSettings({ tmdb: { apiKey: "tmdb-key" } }), createLoggerSpy());
+  const candidates = await resolver.searchCandidates({
+    kind: "tv_show",
+    title: "Breaking Bad",
+    year: 2008,
+  });
+
+  assert.equal(candidates.length, 1);
+  assert.deepEqual(candidates[0], {
+    kind: "tv_show",
+    tmdbId: 1396,
+    title: "Breaking Bad",
+    year: 2008,
+    score: candidates[0].score,
+  });
+  assert.ok(candidates[0].score > 0);
+});
+
+test("resolveCandidateById loads film external ids", async () => {
+  mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+    const pathName = new URL(url).pathname;
+
+    if (pathName === "/3/movie/27205") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 27205,
+          title: "Inception",
+          release_date: "2010-07-16",
+          external_ids: { imdb_id: "tt1375666" },
+        }),
+      };
+    }
+
+    throw new Error(`Unexpected TMDB path: ${pathName}`);
+  });
+
+  const resolver = new TmdbResolver(createSettings({ tmdb: { apiKey: "tmdb-key" } }), createLoggerSpy());
+  const result = await resolver.resolveCandidateById("film", 27205);
+
+  assert.deepEqual(result, {
+    kind: "film",
+    title: "Inception",
+    year: 2010,
+    plexIds: { imdb: "tt1375666", tmdb: 27205 },
+  });
+});

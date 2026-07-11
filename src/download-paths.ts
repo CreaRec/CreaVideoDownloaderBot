@@ -32,7 +32,18 @@ export async function pruneEmptyParentDirectories(
       break;
     }
 
-    const entries = await readdir(currentDir);
+    let entries: string[];
+
+    try {
+      entries = await readdir(currentDir);
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        break;
+      }
+
+      throw error;
+    }
+
     const visibleEntries = entries.filter((entry) => !entry.startsWith("."));
 
     if (visibleEntries.length > 0) {
@@ -65,4 +76,8 @@ function normalizeRelativePath(relativePath: string): string {
   }
 
   return normalizedPath;
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }

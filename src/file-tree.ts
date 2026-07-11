@@ -8,7 +8,7 @@ export { isPathInsideDirectory } from "./download-paths.js";
 
 const CALLBACK_PREFIX = "file-tree";
 
-export type FileTreeAction = "open" | "select" | "delete" | "confirm" | "cancel" | "refresh";
+export type FileTreeAction = "open" | "select" | "delete" | "confirm" | "cancel" | "refresh" | "fix";
 
 export interface FileTreeCallback {
   action: FileTreeAction;
@@ -80,10 +80,12 @@ export class FileTreeBrowser {
     const itemPath = this.resolvePath(relativePath);
     const itemStat = await stat(itemPath);
     const parentPath = getParentRelativePath(relativePath);
+    const canFix = itemStat.isDirectory() && this.canFixMetadata(relativePath);
     const rows = [
       ...(itemStat.isDirectory()
         ? [[button("Open", createCallbackData("open", this.getOrCreateToken(relativePath)))]]
         : []),
+      ...(canFix ? [[button("Fix metadata", createCallbackData("fix", this.getOrCreateToken(relativePath)))]] : []),
       ...(this.canDelete(relativePath)
         ? [[button("Delete", createCallbackData("delete", this.getOrCreateToken(relativePath)))]]
         : []),
@@ -97,10 +99,20 @@ export class FileTreeBrowser {
       message: [
         `Selected ${itemStat.isDirectory() ? "folder" : "file"}: ${formatRelativePath(relativePath)}`,
         `Size: ${itemStat.isDirectory() ? "folder" : formatBytes(itemStat.size)}`,
-        this.canDelete(relativePath) ? "Choose an action." : "This item cannot be deleted from the bot.",
+        this.canDelete(relativePath) || canFix
+          ? "Choose an action."
+          : "This item cannot be deleted from the bot.",
       ].join("\n"),
       extra: { reply_markup: { inline_keyboard: rows } },
     };
+  }
+
+  canFixMetadata(relativePath: string): boolean {
+    return relativePath !== "" && !isProtectedRoot(relativePath);
+  }
+
+  resolveAbsolutePath(relativePath: string): string {
+    return this.resolvePath(relativePath);
   }
 
   async renderDeleteConfirmationToken(token: string): Promise<FileTreeView> {
@@ -338,7 +350,8 @@ function isFileTreeAction(value: string): value is FileTreeAction {
     value === "delete" ||
     value === "confirm" ||
     value === "cancel" ||
-    value === "refresh"
+    value === "refresh" ||
+    value === "fix"
   );
 }
 

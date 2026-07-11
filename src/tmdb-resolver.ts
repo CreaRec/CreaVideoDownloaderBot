@@ -52,6 +52,30 @@ export interface TmdbTvSeriesResolveInput {
   originalTitle?: string;
 }
 
+export interface TmdbSearchCandidatesInput {
+  kind: "film" | "tv_show";
+  title: string;
+  year?: number;
+  limit?: number;
+}
+
+export interface TmdbCandidate {
+  kind: "film" | "tv_show";
+  tmdbId: number;
+  title: string;
+  year?: number;
+  score: number;
+}
+
+export interface TmdbResolvedTitle {
+  kind: "film" | "tv_show";
+  title: string;
+  year?: number;
+  plexIds: PlexIds & { tmdb: number };
+}
+
+const DEFAULT_CANDIDATE_LIMIT = 5;
+
 export class TmdbResolver {
   constructor(
     private readonly settings: Settings,
@@ -129,6 +153,77 @@ export class TmdbResolver {
       return episodeDetails.name || undefined;
     } catch {
       this.logger.debug(`TMDB episode lookup failed for show ${tmdbShowId} s${season}e${episode}.`);
+      return undefined;
+    }
+  }
+
+  async searchCandidates(input: TmdbSearchCandidatesInput): Promise<TmdbCandidate[]> {
+    if (!this.settings.tmdb.apiKey) {
+      return [];
+    }
+
+    const limit = Math.max(1, input.limit ?? DEFAULT_CANDIDATE_LIMIT);
+
+    try {
+      if (input.kind === "film") {
+        const searchResults = await this.tmdbFetch<TmdbSearchMovieResponse>("/search/movie", {
+          query: input.title,
+          year: input.year,
+        });
+
+        return rankMovieCandidates(searchResults.results, input.title, input.year).slice(0, limit);
+      }
+
+      const searchResults = await this.tmdbFetch<TmdbSearchTvResponse>("/search/tv", {
+        query: input.title,
+        first_air_date_year: input.year,
+      });
+
+      return rankTvCandidates(searchResults.results, input.title, input.year).slice(0, limit);
+    } catch (error) {
+      this.logger.warn("TMDB candidate search failed.", error);
+      return [];
+    }
+  }
+
+  async resolveCandidateById(kind: "film" | "tv_show", tmdbId: number): Promise<TmdbResolvedTitle | undefined> {
+    if (!this.settings.tmdb.apiKey) {
+      return undefined;
+    }
+
+    try {
+      if (kind === "film") {
+        const details = await this.tmdbFetch<TmdbMovieDetails>(`/movie/${tmdbId}`, {
+          append_to_response: "external_ids",
+        });
+
+        return {
+          kind: "film",
+          title: details.title,
+          year: getYear(details.release_date),
+          plexIds: {
+            imdb: details.external_ids?.imdb_id || undefined,
+            tmdb: details.id,
+          },
+        };
+      }
+
+      const details = await this.tmdbFetch<TmdbTvDetails>(`/tv/${tmdbId}`, {
+        append_to_response: "external_ids",
+      });
+
+      return {
+        kind: "tv_show",
+        title: details.name || details.original_name || `TMDB ${tmdbId}`,
+        year: getYear(details.first_air_date),
+        plexIds: {
+          imdb: details.external_ids?.imdb_id || undefined,
+          tmdb: details.id,
+          tvdb: details.external_ids?.tvdb_id || undefined,
+        },
+      };
+    } catch (error) {
+      this.logger.warn(`TMDB candidate resolution failed for ${kind} ${tmdbId}.`, error);
       return undefined;
     }
   }
@@ -268,12 +363,36 @@ function pickBestMovieMatch(
   title: string,
   year?: number,
 ): TmdbSearchMovieResult | undefined {
-  if (results.length === 0) {
+  const best = rankMovieCandidates(results, title, year)[0];
+
+  if (!best) {
     return undefined;
   }
 
-  const normalizedTitle = normalizeForMatch(title);
+  return results.find((result) => result.id === best.tmdbId);
+}
 
+function pickBestTvMatch(
+  results: TmdbSearchTvResult[],
+  title: string,
+  year?: number,
+  originalTitle?: string,
+): TmdbSearchTvResult | undefined {
+  const best = rankTvCandidates(results, title, year, originalTitle)[0];
+
+  if (!best) {
+    return undefined;
+  }
+
+  return results.find((result) => result.id === best.tmdbId);
+}
+
+function rankMovieCandidates(results: TmdbSearchMovieResult[], title: string, year?: number): TmdbCandidate[] {
+  if (results.length === 0) {
+    return [];
+  }
+
+  const normalizedTitle = normalizeForMatch(title);
   const scored = results
     .map((result) => ({
       result,
@@ -286,25 +405,33 @@ function pickBestMovieMatch(
     .sort(
       (left, right) =>
         right.score - left.score ||
-        (getYear(right.result.release_date) ?? 0) - (getYear(left.result.release_date) ?? 0),
+        (getYear(right.result.release_date) ?? 0) - (getYear(left.result.release_date) ?? 0) ||
+        (right.result.popularity ?? 0) - (left.result.popularity ?? 0),
     );
 
-  return scored[0]?.score > 0 ? scored[0].result : [...results].sort((left, right) => (right.popularity ?? 0) - (left.popularity ?? 0))[0];
+  const ranked = scored[0]?.score > 0 ? scored : [...scored].sort((left, right) => (right.result.popularity ?? 0) - (left.result.popularity ?? 0));
+
+  return ranked.map(({ result, score }) => ({
+    kind: "film" as const,
+    tmdbId: result.id,
+    title: result.title,
+    year: getYear(result.release_date),
+    score,
+  }));
 }
 
-function pickBestTvMatch(
+function rankTvCandidates(
   results: TmdbSearchTvResult[],
   title: string,
   year?: number,
   originalTitle?: string,
-): TmdbSearchTvResult | undefined {
+): TmdbCandidate[] {
   if (results.length === 0) {
-    return undefined;
+    return [];
   }
 
   const normalizedTitle = normalizeForMatch(title);
   const normalizedOriginalTitle = normalizeForMatch(originalTitle ?? title);
-
   const scored = results
     .map((result) => ({
       result,
@@ -319,10 +446,19 @@ function pickBestTvMatch(
     .sort(
       (left, right) =>
         right.score - left.score ||
-        (getYear(right.result.first_air_date) ?? 0) - (getYear(left.result.first_air_date) ?? 0),
+        (getYear(right.result.first_air_date) ?? 0) - (getYear(left.result.first_air_date) ?? 0) ||
+        (right.result.popularity ?? 0) - (left.result.popularity ?? 0),
     );
 
-  return scored[0]?.score > 0 ? scored[0].result : [...results].sort((left, right) => (right.popularity ?? 0) - (left.popularity ?? 0))[0];
+  const ranked = scored[0]?.score > 0 ? scored : [...scored].sort((left, right) => (right.result.popularity ?? 0) - (left.result.popularity ?? 0));
+
+  return ranked.map(({ result, score }) => ({
+    kind: "tv_show" as const,
+    tmdbId: result.id,
+    title: result.name,
+    year: getYear(result.first_air_date),
+    score,
+  }));
 }
 
 function pickLocalizedTitle(localizedName: string, originalName: string | undefined, preferredTitle?: string): string {

@@ -71,6 +71,7 @@ test("/files tree can browse protected roots and delete nested folders", async (
 
     const selectedNested = await browser.renderSelectedToken(nestedCallback.token);
     assert.equal(hasButton(selectedNested, "Open"), true);
+    assert.equal(hasButton(selectedNested, "Fix metadata"), true);
     assert.equal(hasButton(selectedNested, "Delete"), true);
 
     const deleteCallback = browser.parseCallbackData(findButton(selectedNested, "Delete").callback_data);
@@ -82,6 +83,47 @@ test("/files tree can browse protected roots and delete nested folders", async (
     const outcome = await browser.deleteToken(deleteCallback.token);
     assert.equal(outcome, "deleted");
     await assert.rejects(stat(nestedFolder));
+  });
+});
+
+test("/files tree shows Fix metadata on folders but not protected roots or files", async () => {
+  await withTempDir(async (dir) => {
+    const nestedFolder = path.join(dir, "Undefined", "Wrong Title");
+    await mkdir(nestedFolder, { recursive: true });
+    await writeFile(path.join(nestedFolder, "clip.mp4"), "video", "utf8");
+    await mkdir(path.join(dir, "Movies"), { recursive: true });
+
+    const browser = new FileTreeBrowser(dir);
+    const rootView = await browser.renderRoot();
+
+    const moviesCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
+    assert.ok(moviesCallback);
+    const selectedMovies = await browser.renderSelectedToken(moviesCallback.token);
+    assert.equal(hasButton(selectedMovies, "Fix metadata"), false);
+
+    const undefinedCallback = browser.parseCallbackData(findButton(rootView, "Folder Undefined").callback_data);
+    assert.ok(undefinedCallback);
+    const selectedUndefined = await browser.renderSelectedToken(undefinedCallback.token);
+    const openUndefined = browser.parseCallbackData(findButton(selectedUndefined, "Open").callback_data);
+    assert.ok(openUndefined);
+
+    const undefinedView = await browser.renderDirectoryToken(openUndefined.token);
+    const folderCallback = browser.parseCallbackData(findButton(undefinedView, "Folder Wrong Title").callback_data);
+    assert.ok(folderCallback);
+
+    const selectedFolder = await browser.renderSelectedToken(folderCallback.token);
+    assert.equal(hasButton(selectedFolder, "Fix metadata"), true);
+    const fixCallback = browser.parseCallbackData(findButton(selectedFolder, "Fix metadata").callback_data);
+    assert.ok(fixCallback);
+    assert.equal(fixCallback.action, "fix");
+
+    const openFolder = browser.parseCallbackData(findButton(selectedFolder, "Open").callback_data);
+    assert.ok(openFolder);
+    const folderView = await browser.renderDirectoryToken(openFolder.token);
+    const fileCallback = browser.parseCallbackData(findButton(folderView, "File clip.mp4").callback_data);
+    assert.ok(fileCallback);
+    const selectedFile = await browser.renderSelectedToken(fileCallback.token);
+    assert.equal(hasButton(selectedFile, "Fix metadata"), false);
   });
 });
 
