@@ -2,19 +2,14 @@ import assert from "node:assert/strict";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, mock, test } from "node:test";
-import {
-  BotService,
-  createProgressReporter,
-  formatBytes,
-  getCaption,
-  getDisplayFileName,
-  getSuggestedFileName,
-} from "../src/bot.js";
+import { BotService } from "../src/bot.js";
 import { createDeleteButtonReplyMarkup, parseDeleteCallbackData, type DeleteButtonReplyMarkup } from "../src/delete-buttons.js";
 import { DownloadCanceledError, type DownloadRequest } from "../src/downloader.js";
 import type { FileTreeBrowser } from "../src/file-tree.js";
 import { DownloadSemaphore } from "../src/download-semaphore.js";
+import { createProgressReporter, formatBytes } from "../src/progress-reporter.js";
 import { StatusEditScheduler } from "../src/status-edit-scheduler.js";
+import { getCaption, getDisplayFileName, getSuggestedFileName } from "../src/telegram-message.js";
 import { createLoggerSpy, createSettings, withTempDir, type LoggerSpy } from "./helpers/test-utils.js";
 
 afterEach(() => {
