@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import input from "input";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
-import { getSettingsPath, getUserSession, getUserSessionUserIds, loadSettings } from "./settings.js";
+import { getSettingsPath, getUserSession, getUserSessionUserIds, loadSettings } from "../config/settings.js";
 
 export function parseLoginUserId(argv: string[], configuredUserIds: number[]): number {
   const userIdIndex = argv.indexOf("--user-id");

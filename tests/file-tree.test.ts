@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
-import { FileTreeBrowser, isPathInsideDirectory, type FileTreeView } from "../src/file-tree.js";
+import { FileTreeBrowser, isPathInsideDirectory, type FileTreeView } from "../src/files/file-tree.js";
 import { withTempDir } from "./helpers/test-utils.js";
 
 test("reset clears cached file tree tokens", async () => {

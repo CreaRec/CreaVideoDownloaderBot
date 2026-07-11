@@ -10,7 +10,7 @@ import {
   formatPlexTitle,
   formatSeasonDir,
   sanitizePlexName,
-} from "../src/plex-paths.js";
+} from "../src/metadata/plex-paths.js";
 
 test("formatPlexTitle includes year when provided", () => {
   assert.equal(formatPlexTitle("Inception", 2010), "Inception (2010)");

@@ -8,17 +8,17 @@ import {
   deleteDownloadedFile,
   parseDeleteCallbackData,
   type DeleteButtonState,
-} from "./delete-buttons.js";
-import type { ActiveDownloads } from "./active-downloads.js";
-import type { Logger } from "./logger.js";
-import type { Settings } from "./settings.js";
+} from "../files/delete-buttons.js";
+import type { ActiveDownloads } from "../download/active-downloads.js";
+import type { Logger } from "../config/logger.js";
+import type { Settings } from "../config/settings.js";
 import {
   answerCallback,
   BOT_PRIVATE_MESSAGE,
   getCallbackData,
   getCallbackMessage,
   isAllowedUser,
-} from "./telegram-ctx.js";
+} from "../telegram/telegram-ctx.js";
 
 export class DeleteHandlers {
   constructor(

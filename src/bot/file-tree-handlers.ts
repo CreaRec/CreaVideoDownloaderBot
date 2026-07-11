@@ -1,15 +1,15 @@
 import type { Context } from "telegraf";
-import type { FileTreeBrowser } from "./file-tree.js";
-import type { Logger } from "./logger.js";
+import type { FileTreeBrowser } from "../files/file-tree.js";
+import type { Logger } from "../config/logger.js";
 import type { MetadataFixHandlers } from "./metadata-fix-handlers.js";
-import type { Settings } from "./settings.js";
+import type { Settings } from "../config/settings.js";
 import {
   answerCallback,
   BOT_PRIVATE_MESSAGE,
   getCallbackData,
   getCallbackMessage,
   isAllowedUser,
-} from "./telegram-ctx.js";
+} from "../telegram/telegram-ctx.js";
 
 export class FileTreeHandlers {
   private readonly fileTreeMessageIdByChat = new Map<number, number>();

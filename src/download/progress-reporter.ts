@@ -1,8 +1,8 @@
-import type { DeleteButtonReplyMarkup } from "./delete-buttons.js";
+import type { DeleteButtonReplyMarkup } from "../files/delete-buttons.js";
 import type { DownloadProgress, DownloadResult } from "./downloader.js";
-import type { Logger } from "./logger.js";
+import type { Logger } from "../config/logger.js";
 import type { StatusEditScheduler, StatusReplyFn } from "./status-edit-scheduler.js";
-import type { ReplyFn } from "./telegram-ctx.js";
+import type { ReplyFn } from "../telegram/telegram-ctx.js";
 
 export const DEFAULT_PROGRESS_PERCENT_STEP = 10;
 export const DEFAULT_PROGRESS_MIN_INTERVAL_MS = 10_000;

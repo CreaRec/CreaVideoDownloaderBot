@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
-import { isProtectedRoot, pruneEmptyParentDirectories } from "../src/download-paths.js";
+import { isProtectedRoot, pruneEmptyParentDirectories } from "../src/download/download-paths.js";
 import { withTempDir } from "./helpers/test-utils.js";
 
 test("isProtectedRoot matches only top-level Movies, TV Shows, and Undefined", () => {

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import type { Logger } from "./logger.js";
-import type { Settings } from "./settings.js";
+import type { Logger } from "../config/logger.js";
+import type { Settings } from "../config/settings.js";
 
 const MIN_CONFIDENCE = 0.7;
 

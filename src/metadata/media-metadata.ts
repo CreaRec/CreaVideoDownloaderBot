@@ -1,7 +1,7 @@
-import type { Logger } from "./logger.js";
+import type { Logger } from "../config/logger.js";
 import type { MediaClassificationInput } from "./media-classifier.js";
 import { MediaClassifier } from "./media-classifier.js";
-import type { Settings } from "./settings.js";
+import type { Settings } from "../config/settings.js";
 import { buildMoviePath, buildTvShowPath, buildUndefinedPath, sanitizeLegacyFileName, type PlexIds } from "./plex-paths.js";
 import { TmdbResolver } from "./tmdb-resolver.js";
 

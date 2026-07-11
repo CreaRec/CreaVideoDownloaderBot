@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
-import { MediaClassifier } from "../src/media-classifier.js";
+import { MediaClassifier } from "../src/metadata/media-classifier.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
 afterEach(() => {

@@ -1,10 +1,10 @@
 import { access, mkdir, readdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
-import { isPathInsideDirectory, pruneEmptyParentDirectories } from "./download-paths.js";
-import type { Logger } from "./logger.js";
+import { isPathInsideDirectory, pruneEmptyParentDirectories } from "../download/download-paths.js";
+import type { Logger } from "../config/logger.js";
 import type { MediaClassifier } from "./media-classifier.js";
 import { buildMoviePath, buildTvShowPath, type PlexIds } from "./plex-paths.js";
-import type { Settings } from "./settings.js";
+import type { Settings } from "../config/settings.js";
 import type { TmdbResolvedTitle, TmdbResolver } from "./tmdb-resolver.js";
 
 const MEDIA_EXTENSIONS = new Set([

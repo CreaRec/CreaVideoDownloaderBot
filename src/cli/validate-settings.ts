@@ -1,4 +1,4 @@
-import { loadSettings, redactSettings } from "./settings.js";
+import { loadSettings, redactSettings } from "../config/settings.js";
 
 async function main(): Promise<void> {
   const settings = await loadSettings();

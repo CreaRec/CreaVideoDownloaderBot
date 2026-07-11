@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FileTreeBrowser } from "../src/file-tree.js";
+import { FileTreeBrowser } from "../src/files/file-tree.js";
 import {
   createCandidateReplyMarkup,
   FIX_META_CALLBACK_PREFIX,
   formatCandidateLabel,
   MetadataFixHandlers,
   parseFixMetaCallbackData,
-} from "../src/metadata-fix-handlers.js";
+} from "../src/bot/metadata-fix-handlers.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
 test("parseFixMetaCallbackData parses pick and cancel actions", () => {

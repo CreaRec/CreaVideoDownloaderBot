@@ -1,7 +1,7 @@
 import type { Context } from "telegraf";
-import type { Logger } from "./logger.js";
-import type { Settings } from "./settings.js";
-import { isConfiguredUser } from "./settings.js";
+import type { Logger } from "../config/logger.js";
+import type { Settings } from "../config/settings.js";
+import { isConfiguredUser } from "../config/settings.js";
 
 export type TelegramStatusMessage = { message_id?: number };
 export type ReplyFn = (message: string) => Promise<TelegramStatusMessage>;

@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import { readdir, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { InlineKeyboardMarkup } from "telegraf/types";
-import { isPathInsideDirectory, isProtectedRoot, pruneEmptyParentDirectories } from "./download-paths.js";
+import { isPathInsideDirectory, isProtectedRoot, pruneEmptyParentDirectories } from "../download/download-paths.js";
 
-export { isPathInsideDirectory } from "./download-paths.js";
+export { isPathInsideDirectory } from "../download/download-paths.js";
 
 const CALLBACK_PREFIX = "file-tree";
 

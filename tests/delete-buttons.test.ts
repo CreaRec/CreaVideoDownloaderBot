@@ -12,7 +12,7 @@ import {
   DeleteButtonState,
   isPathInsideDirectory,
   parseDeleteCallbackData,
-} from "../src/delete-buttons.js";
+} from "../src/files/delete-buttons.js";
 import { withTempDir } from "./helpers/test-utils.js";
 
 test("delete button callback data is parsed from generated markup", () => {

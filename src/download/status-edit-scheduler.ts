@@ -1,5 +1,5 @@
-import type { DeleteButtonReplyMarkup } from "./delete-buttons.js";
-import type { Logger } from "./logger.js";
+import type { DeleteButtonReplyMarkup } from "../files/delete-buttons.js";
+import type { Logger } from "../config/logger.js";
 
 export type StatusReplyFn = (message: string) => Promise<{ message_id?: number }>;
 

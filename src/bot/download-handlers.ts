@@ -1,21 +1,21 @@
 import {
   createDeleteButtonReplyMarkup,
   type DeleteButtonState,
-} from "./delete-buttons.js";
-import { isDownloadCanceled, type TelegramDownloader } from "./downloader.js";
-import type { ActiveDownloads } from "./active-downloads.js";
-import type { DownloadSemaphore } from "./download-semaphore.js";
-import type { Logger } from "./logger.js";
-import { createProgressReporter } from "./progress-reporter.js";
-import type { Settings } from "./settings.js";
-import type { StatusEditScheduler } from "./status-edit-scheduler.js";
-import { isAllowedUser, safeReply, type ReplyFn } from "./telegram-ctx.js";
+} from "../files/delete-buttons.js";
+import { isDownloadCanceled, type TelegramDownloader } from "../download/downloader.js";
+import type { ActiveDownloads } from "../download/active-downloads.js";
+import type { DownloadSemaphore } from "../download/download-semaphore.js";
+import type { Logger } from "../config/logger.js";
+import { createProgressReporter } from "../download/progress-reporter.js";
+import type { Settings } from "../config/settings.js";
+import type { StatusEditScheduler } from "../download/status-edit-scheduler.js";
+import { isAllowedUser, safeReply, type ReplyFn } from "../telegram/telegram-ctx.js";
 import {
   getCaption,
   getDisplayFileName,
   getSuggestedFileName,
   type DownloadableMessage,
-} from "./telegram-message.js";
+} from "../telegram/telegram-message.js";
 
 export class DownloadHandlers {
   constructor(

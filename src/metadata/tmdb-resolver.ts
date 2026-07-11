@@ -1,5 +1,5 @@
-import type { Logger } from "./logger.js";
-import type { Settings } from "./settings.js";
+import type { Logger } from "../config/logger.js";
+import type { Settings } from "../config/settings.js";
 import type { PlexIds } from "./plex-paths.js";
 
 const TMDB_API_BASE_URL = "https://api.themoviedb.org/3";

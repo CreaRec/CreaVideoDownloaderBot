@@ -2,9 +2,9 @@ import { access, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
-import type { Logger } from "./logger.js";
-import { buildLegacyFallbackFileName, MediaMetadataService } from "./media-metadata.js";
-import { getConfiguredUserSessions, getUserSession, type Settings } from "./settings.js";
+import type { Logger } from "../config/logger.js";
+import { buildLegacyFallbackFileName, MediaMetadataService } from "../metadata/media-metadata.js";
+import { getConfiguredUserSessions, getUserSession, type Settings } from "../config/settings.js";
 
 export interface DownloadRequest {
   botMessageId: number;

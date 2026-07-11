@@ -2,11 +2,11 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import type { Context } from "telegraf";
 import type { InlineKeyboardMarkup } from "telegraf/types";
-import type { FileTreeBrowser } from "./file-tree.js";
-import type { Logger } from "./logger.js";
-import type { MetadataFixHintParser } from "./metadata-fix-hint.js";
-import type { MetadataFixRenamer } from "./metadata-fix-renamer.js";
-import type { Settings } from "./settings.js";
+import type { FileTreeBrowser } from "../files/file-tree.js";
+import type { Logger } from "../config/logger.js";
+import type { MetadataFixHintParser } from "../metadata/metadata-fix-hint.js";
+import type { MetadataFixRenamer } from "../metadata/metadata-fix-renamer.js";
+import type { Settings } from "../config/settings.js";
 import {
   answerCallback as answerCallbackQuery,
   BOT_HELP_MESSAGE,
@@ -14,8 +14,8 @@ import {
   getCallbackData,
   getCallbackMessage,
   isAllowedUser,
-} from "./telegram-ctx.js";
-import type { TmdbCandidate, TmdbResolver } from "./tmdb-resolver.js";
+} from "../telegram/telegram-ctx.js";
+import type { TmdbCandidate, TmdbResolver } from "../metadata/tmdb-resolver.js";
 
 const METADATA_FIX_TTL_MS = 15 * 60 * 1000;
 export const FIX_META_CALLBACK_PREFIX = "fix-meta";

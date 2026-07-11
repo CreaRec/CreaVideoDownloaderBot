@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, mock, test } from "node:test";
-import { MetadataFixHintParser } from "../src/metadata-fix-hint.js";
+import { MetadataFixHintParser } from "../src/metadata/metadata-fix-hint.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
 afterEach(() => {

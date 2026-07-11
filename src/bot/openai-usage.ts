@@ -1,5 +1,5 @@
-import type { Logger } from "./logger.js";
-import type { Settings } from "./settings.js";
+import type { Logger } from "../config/logger.js";
+import type { Settings } from "../config/settings.js";
 
 const OPENAI_API_BASE_URL = "https://api.openai.com/v1";
 const SECONDS_PER_DAY = 24 * 60 * 60;

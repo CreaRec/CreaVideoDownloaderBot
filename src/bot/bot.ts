@@ -1,30 +1,30 @@
 import { Telegraf } from "telegraf";
 import type { Context } from "telegraf";
-import { ActiveDownloads } from "./active-downloads.js";
-import { DeleteButtonState } from "./delete-buttons.js";
+import { ActiveDownloads } from "../download/active-downloads.js";
+import { DeleteButtonState } from "../files/delete-buttons.js";
 import { DeleteHandlers } from "./delete-handlers.js";
-import type { TelegramDownloader } from "./downloader.js";
+import type { TelegramDownloader } from "../download/downloader.js";
 import { DownloadHandlers } from "./download-handlers.js";
-import { DownloadSemaphore } from "./download-semaphore.js";
-import { FileTreeBrowser } from "./file-tree.js";
+import { DownloadSemaphore } from "../download/download-semaphore.js";
+import { FileTreeBrowser } from "../files/file-tree.js";
 import { FileTreeHandlers } from "./file-tree-handlers.js";
-import type { Logger } from "./logger.js";
-import { MediaClassifier } from "./media-classifier.js";
+import type { Logger } from "../config/logger.js";
+import { MediaClassifier } from "../metadata/media-classifier.js";
 import { MetadataFixHandlers } from "./metadata-fix-handlers.js";
-import { MetadataFixHintParser } from "./metadata-fix-hint.js";
-import { MetadataFixRenamer } from "./metadata-fix-renamer.js";
+import { MetadataFixHintParser } from "../metadata/metadata-fix-hint.js";
+import { MetadataFixRenamer } from "../metadata/metadata-fix-renamer.js";
 import { OpenAIUsageService, type OpenAIUsageReporter } from "./openai-usage.js";
-import type { Settings } from "./settings.js";
-import { StatusEditScheduler } from "./status-edit-scheduler.js";
+import type { Settings } from "../config/settings.js";
+import { StatusEditScheduler } from "../download/status-edit-scheduler.js";
 import {
   BOT_HELP_MESSAGE,
   BOT_PRIVATE_MESSAGE,
   getCommandArgument,
   isAllowedUser,
   type ReplyFn,
-} from "./telegram-ctx.js";
-import type { DownloadableMessage } from "./telegram-message.js";
-import { TmdbResolver } from "./tmdb-resolver.js";
+} from "../telegram/telegram-ctx.js";
+import type { DownloadableMessage } from "../telegram/telegram-message.js";
+import { TmdbResolver } from "../metadata/tmdb-resolver.js";
 
 type RestartServiceFn = () => void;
 

@@ -1,8 +1,8 @@
-import { BotService } from "./bot.js";
-import { TelegramDownloader } from "./downloader.js";
-import { Logger } from "./logger.js";
-import { MediaMetadataService } from "./media-metadata.js";
-import { loadSettings } from "./settings.js";
+import { BotService } from "./bot/bot.js";
+import { TelegramDownloader } from "./download/downloader.js";
+import { Logger } from "./config/logger.js";
+import { MediaMetadataService } from "./metadata/media-metadata.js";
+import { loadSettings } from "./config/settings.js";
 
 async function main(): Promise<void> {
   const settings = await loadSettings();

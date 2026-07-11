@@ -1,17 +1,11 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import type { Logger } from "./logger.js";
-import type { Settings } from "./settings.js";
+import type { Logger } from "../config/logger.js";
+import { configPath } from "../config/paths.js";
+import type { Settings } from "../config/settings.js";
 
 const MIN_CONFIDENCE = 0.7;
-const DEFAULT_INSTRUCTIONS_PATH = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "config",
-  "metadata-fix-hint-instructions.md",
-);
+const DEFAULT_INSTRUCTIONS_PATH = configPath("metadata-fix-hint-instructions.md");
 
 const modelResponseSchema = z.object({
   kind: z.enum(["film", "tv_show", "undefined"]),

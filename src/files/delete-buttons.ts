@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { InlineKeyboardMarkup } from "telegraf/types";
-import { isPathInsideDirectory, pruneEmptyParentDirectories } from "./download-paths.js";
+import { isPathInsideDirectory, pruneEmptyParentDirectories } from "../download/download-paths.js";
 
-export { isPathInsideDirectory } from "./download-paths.js";
+export { isPathInsideDirectory } from "../download/download-paths.js";
 
 const CALLBACK_PREFIX = "file-delete";
 

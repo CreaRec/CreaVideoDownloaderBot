@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, mock, test } from "node:test";
-import { MediaClassifier } from "../src/media-classifier.js";
-import { MetadataFixRenamer, parseSeasonEpisode } from "../src/metadata-fix-renamer.js";
-import { TmdbResolver } from "../src/tmdb-resolver.js";
+import { MediaClassifier } from "../src/metadata/media-classifier.js";
+import { MetadataFixRenamer, parseSeasonEpisode } from "../src/metadata/metadata-fix-renamer.js";
+import { TmdbResolver } from "../src/metadata/tmdb-resolver.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
 afterEach(() => {

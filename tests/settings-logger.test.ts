@@ -3,8 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
-import { Logger } from "../src/logger.js";
-import { loadSettings, redactSettings } from "../src/settings.js";
+import { Logger } from "../src/config/logger.js";
+import { loadSettings, redactSettings } from "../src/config/settings.js";
 import { createSettings, withTempDir, writeJson } from "./helpers/test-utils.js";
 
 afterEach(() => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
-import { TmdbResolver } from "../src/tmdb-resolver.js";
+import { TmdbResolver } from "../src/metadata/tmdb-resolver.js";
 import { createLoggerSpy, createSettings } from "./helpers/test-utils.js";
 
 afterEach(() => {

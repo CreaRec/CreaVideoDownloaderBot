@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
-import { MediaMetadataService } from "../src/media-metadata.js";
-import type { MediaClassification } from "../src/media-classifier.js";
-import type { TmdbMatch } from "../src/tmdb-resolver.js";
+import { MediaMetadataService } from "../src/metadata/media-metadata.js";
+import type { MediaClassification } from "../src/metadata/media-classifier.js";
+import type { TmdbMatch } from "../src/metadata/tmdb-resolver.js";
 import { createLoggerSpy, createSettings } from "./helpers/test-utils.js";
 
 afterEach(() => {

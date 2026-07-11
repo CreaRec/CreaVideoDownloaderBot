@@ -1,10 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(__dirname, "..");
+import { configPath, projectRoot } from "./paths.js";
 
 const settingsSchema = z.object({
   telegram: z.object({
@@ -26,12 +23,12 @@ const settingsSchema = z.object({
       apiKey: z.string().optional(),
       adminApiKey: z.string().optional(),
       model: z.string().min(1).default("gpt-4o-mini"),
-      instructionsPath: z.string().min(1).default(path.resolve(projectRoot, "config", "media-classification-instructions.md")),
+      instructionsPath: z.string().min(1).default(configPath("media-classification-instructions.md")),
       usageStartDate: z.string().optional(),
     })
     .default({
       model: "gpt-4o-mini",
-      instructionsPath: path.resolve(projectRoot, "config", "media-classification-instructions.md"),
+      instructionsPath: configPath("media-classification-instructions.md"),
     }),
   tmdb: z
     .object({
@@ -75,7 +72,7 @@ export function getSettingsPath(): string {
     return path.resolve(process.env.SETTINGS_PATH);
   }
 
-  return path.resolve(projectRoot, "config", "settings.json");
+  return configPath("settings.json");
 }
 
 export async function loadSettings(

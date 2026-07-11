@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseLoginUserId } from "../src/login.js";
+import { parseLoginUserId } from "../src/cli/login.js";
 
 test("parseLoginUserId defaults to the only configured user", () => {
   assert.equal(parseLoginUserId([], [1234]), 1234);

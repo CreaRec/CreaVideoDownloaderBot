@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { Logger } from "../../src/logger.js";
-import type { Settings } from "../../src/settings.js";
+import type { Logger } from "../../src/config/logger.js";
+import type { Settings } from "../../src/config/settings.js";
 
 export function createSettings(overrides: PartialSettings = {}): Settings {
   const base: Settings = {

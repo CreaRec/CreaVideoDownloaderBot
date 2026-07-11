@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createUsageTimeRange, formatOpenAIUsageReport, OpenAIUsageService } from "../src/openai-usage.js";
+import { createUsageTimeRange, formatOpenAIUsageReport, OpenAIUsageService } from "../src/bot/openai-usage.js";
 import { createLoggerSpy, createSettings } from "./helpers/test-utils.js";
 
 test("OpenAI usage service reports missing admin key without fetching", async () => {

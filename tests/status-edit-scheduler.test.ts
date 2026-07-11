@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { StatusEditScheduler, getRetryAfterSeconds } from "../src/status-edit-scheduler.js";
+import { StatusEditScheduler, getRetryAfterSeconds } from "../src/download/status-edit-scheduler.js";
 import { createLoggerSpy } from "./helpers/test-utils.js";
 
 function createTelegram429Error(retryAfter: number): Error {

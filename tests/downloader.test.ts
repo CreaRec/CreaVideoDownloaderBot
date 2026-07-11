@@ -2,8 +2,8 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isDownloadCanceled, TelegramDownloader, type DownloadProgress } from "../src/downloader.js";
-import type { PlexMetadata } from "../src/media-metadata.js";
+import { isDownloadCanceled, TelegramDownloader, type DownloadProgress } from "../src/download/downloader.js";
+import type { PlexMetadata } from "../src/metadata/media-metadata.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
 test("downloadFromBotMessage requires the downloader to be started", async () => {
