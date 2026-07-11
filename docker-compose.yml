@@ -1,0 +1,11 @@
+services:
+  bot:
+    image: ${IMAGE:-ghcr.io/crearec/crea-video-downloader}:${IMAGE_TAG:-main}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      SETTINGS_PATH: /app/config/settings.json
+    volumes:
+      - ./config/settings.json:/app/config/settings.json
+      - ./data:/app/data
+      - ${DOWNLOAD_DIR}:/downloads

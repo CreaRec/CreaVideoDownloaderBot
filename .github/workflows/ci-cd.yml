@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  IMAGE: ghcr.io/crearec/crea-video-downloader
+  DEPLOY_DIR: /home/crearec/crea-video-downloader-bot
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -19,17 +23,60 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  deploy:
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: ${{ env.IMAGE }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish:
     runs-on: ubuntu-latest
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          node-version: "22"
-          cache: npm
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: meta
+        run: |
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          echo "image_tag=sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tags=${IMAGE}:main,${IMAGE}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Setup SSH key
         run: |
@@ -38,15 +85,45 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy
+      - name: Deploy compose pull/up
         env:
           SSH_USER: ${{ secrets.DEPLOY_USER }}
           SERVER_HOST: ${{ secrets.DEPLOY_HOST }}
-          SSH_CONTROL_PATH: /tmp/video-deploy-${{ secrets.DEPLOY_USER }}-${{ secrets.DEPLOY_HOST }}
+          IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
         run: |
-          npm ci
+          set -euo pipefail
           SSH_TARGET="${SSH_USER}@${SERVER_HOST}"
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
-            -M -S "$SSH_CONTROL_PATH" -fnNT "$SSH_TARGET"
-          trap 'ssh -S "$SSH_CONTROL_PATH" -O exit "$SSH_TARGET" 2>/dev/null || true' EXIT
-          ./scripts/deploy.sh --remote
+          SSH=(ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes)
+          SCP=(scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes)
+
+          "${SSH[@]}" "$SSH_TARGET" "mkdir -p '${DEPLOY_DIR}/config' '${DEPLOY_DIR}/data'"
+          "${SCP[@]}" docker-compose.yml "${SSH_TARGET}:${DEPLOY_DIR}/docker-compose.yml"
+
+          "${SSH[@]}" "$SSH_TARGET" bash -s <<EOF
+          set -euo pipefail
+          cd '${DEPLOY_DIR}'
+
+          if [ ! -f .env ]; then
+            echo "ERROR: ${DEPLOY_DIR}/.env is missing. Create it from .env.example (DOWNLOAD_DIR, IMAGE, IMAGE_TAG)." >&2
+            exit 1
+          fi
+          if [ ! -f config/settings.json ]; then
+            echo "ERROR: ${DEPLOY_DIR}/config/settings.json is missing. Bootstrap settings on the server first." >&2
+            exit 1
+          fi
+
+          if [ -f /etc/systemd/system/telegram-video-downloader.service ] || systemctl list-unit-files telegram-video-downloader.service 2>/dev/null | grep -q telegram-video-downloader; then
+            sudo systemctl disable --now telegram-video-downloader || true
+          fi
+
+          if grep -q '^IMAGE_TAG=' .env; then
+            sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=${IMAGE_TAG}/" .env && rm -f .env.bak
+          else
+            printf '\nIMAGE_TAG=%s\n' "${IMAGE_TAG}" >> .env
+          fi
+
+          docker compose pull
+          docker compose up -d
+          docker compose ps
+          docker compose logs --tail=30
+          EOF

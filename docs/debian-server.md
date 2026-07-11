@@ -1,268 +1,72 @@
 # Debian Server Deployment
 
-This guide installs the downloader as a systemd process on Debian.
+Production runs the bot in Docker on Debian. Releases are published to GHCR and pulled by GitHub Actions. See [docker.md](docker.md) for the full guide and one-time bootstrap.
 
-The examples use `/opt/telegram-video-downloader` for the app and `/var/lib/telegram-video-downloader` for downloaded files. Adjust paths if needed, then update the systemd unit and `config/settings.json` to match.
+This page is a short server-oriented summary. Local deploy scripts are not used.
 
-## 1. Install Node.js
+## Layout
 
-Install Node.js 22.9.0 or newer and npm 11.16.0. One common approach is NodeSource:
+Default deploy directory: `/home/crearec/crea-video-downloader-bot`
 
-```sh
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-sudo npm install -g npm@11.16.0
-node --version
-npm --version
-```
+| Path | Role |
+|------|------|
+| `docker-compose.yml` | Synced from git by Actions |
+| `.env` | `DOWNLOAD_DIR`, `IMAGE`, `IMAGE_TAG` (never overwritten by Actions except `IMAGE_TAG`) |
+| `config/settings.json` | Secrets and GramJS sessions (never overwritten by Actions) |
+| `data/` | App state volume |
+| host `DOWNLOAD_DIR` (for example `/mnt/synology/video`) | Mounted at `/downloads` in the container |
 
-## 2. Create A Service User
+Host user: `crearec` (same user as other Docker/Portainer stacks). No separate `telegramvideo` system user.
 
-```sh
-sudo useradd --system --home /opt/telegram-video-downloader --shell /usr/sbin/nologin telegramvideo
-sudo mkdir -p /opt/telegram-video-downloader /var/lib/telegram-video-downloader
-sudo chown -R telegramvideo:telegramvideo /opt/telegram-video-downloader /var/lib/telegram-video-downloader
-```
+## Prerequisites
 
-## 3. Copy And Build The Project
+- Docker Engine + Compose plugin (already required for Portainer stacks)
+- `crearec` can run `docker compose` without sudo
+- `docker login ghcr.io` with a PAT that has `read:packages` (private image)
+- Passwordless sudo for `systemctl` only if the old systemd unit must still be disabled during migration
 
-From your local machine or your server checkout, place the project in `/opt/telegram-video-downloader`.
+Node.js is **not** required on the server for runtime. It is only needed if you run `npm run login` on the host.
 
-On the server:
+## Migrate from systemd
 
-```sh
-cd /opt/telegram-video-downloader
-sudo -u telegramvideo npm install
-sudo -u telegramvideo npm run build
-```
+1. Complete the bootstrap in [docker.md](docker.md) (`.env`, settings with `download.directory: "/downloads"`, GHCR login).
+2. `sudo systemctl disable --now telegram-video-downloader`
+3. Start the container (`docker compose up -d` or wait for Actions)
+4. Confirm downloads still land under the Synology mount
+5. Remove the old full app checkout if it is no longer needed
 
-For a production install after building, you can remove dev dependencies:
+## GitHub Actions
 
-```sh
-sudo -u telegramvideo npm prune --omit=dev
-```
+Push/merge to `main` runs:
 
-## 4. Configure Settings
+1. `test` — `npm test` and a non-pushing Docker build
+2. `publish` — push `ghcr.io/crearec/crea-video-downloader:main` and `:sha-<short>`
+3. `deploy` — SCP `docker-compose.yml`, set `IMAGE_TAG`, `docker compose pull && up -d`
 
-```sh
-cd /opt/telegram-video-downloader
-sudo -u telegramvideo cp config/settings.example.json config/settings.json
-sudo -u telegramvideo nano config/settings.json
-```
+Required secrets: `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`.
 
-Set:
+Actions never overwrites `config/settings.json`.
 
-- `telegram.apiId`
-- `telegram.apiHash`
-- `telegram.botToken`
-- `telegram.botUsername`
-- `download.directory`, for example `/var/lib/telegram-video-downloader`
+## Plex + Synology storage
 
-Validate settings:
-
-```sh
-sudo -u telegramvideo npm run validate:settings
-```
-
-## 5. Create GramJS Sessions
-
-Run the login helper on the server for each user who should access the bot:
-
-```sh
-cd /opt/telegram-video-downloader
-sudo -u telegramvideo npm run login -- --user-id <telegram_user_id>
-```
-
-If `--user-id` is omitted and exactly one user exists in `telegram.userSessions`, the script re-authenticates that user.
-
-Complete the Telegram login prompts for that user's account. The script writes the session into `telegram.userSessions` in `config/settings.json` without overwriting other users' sessions.
-
-After adding or updating a session, restart the service:
-
-```sh
-sudo systemctl restart telegram-video-downloader
-```
-
-## 6. Install The systemd Unit
-
-```sh
-sudo cp deploy/telegram-video-downloader.service /etc/systemd/system/telegram-video-downloader.service
-sudo systemctl daemon-reload
-sudo systemctl enable telegram-video-downloader
-sudo systemctl start telegram-video-downloader
-```
-
-Check status and logs:
-
-```sh
-sudo systemctl status telegram-video-downloader
-sudo journalctl -u telegram-video-downloader -f
-```
-
-The installed unit uses `Restart=always`, so the private `/restart` bot command can exit the Node process and systemd will bring it back after `RestartSec`. It also uses `RuntimeMaxSec=24h` to recycle the long-running Telegram client once per day.
-
-## 7. Updating The Service
-
-```sh
-cd /opt/telegram-video-downloader
-sudo -u telegramvideo npm install
-sudo -u telegramvideo npm run build
-sudo systemctl restart telegram-video-downloader
-```
-
-After editing `config/settings.json`, restart the service so the app reloads the new settings:
-
-```sh
-sudo systemctl restart telegram-video-downloader
-```
-
-If you change `download.directory`, also refresh the installed systemd unit. Deploy substitutes that path into `ReadWritePaths` in `deploy/telegram-video-downloader.service`; a settings-only change leaves the old path in `/etc/systemd/system/telegram-video-downloader.service`. With `ProtectSystem=full`, a missing or stale path in `ReadWritePaths` prevents startup (`Failed at step NAMESPACE`, status `226`). Redeploy, or edit the unit, run `sudo systemctl daemon-reload`, and ensure the directory exists before restarting.
-
-## Scripted Deployment
-
-To deploy or update the app without cloning the repository on the server, run this from your local project root:
-
-```sh
-./scripts/deploy.sh
-```
-
-By default, the script connects to `192.168.1.135`, rsyncs the project to `/home/crearec/crea-video-downloader-bot`, builds on the server, installs the `telegram-video-downloader` systemd unit, and restarts the service. It runs `npm test` locally first and aborts if tests fail.
-
-Use `--remote` to connect via `crearec.app` instead of the local network IP:
-
-```sh
-./scripts/deploy.sh --remote
-```
-
-Override any of: `SERVER_HOST`, `SSH_USER`, `REMOTE_APP_DIR`, `SERVICE_NAME`.
-
-```sh
-SERVER_HOST=192.168.1.135 SSH_USER=crearec REMOTE_APP_DIR=/home/crearec/crea-video-downloader-bot ./scripts/deploy.sh
-```
-
-Set optional `DEPLOY_PASSWORD` in a local `.env` file (or export it) to skip SSH/sudo prompts during deploy; you need `sshpass` installed locally. When `DEPLOY_PASSWORD` is unset, deploy asks for passwords interactively.
-
-The deploy script reuses one SSH connection and one `sudo` session on the server, so you should only be prompted for the server login password once and the sudo password once (if password auth is used). For zero prompts, use SSH keys and passwordless sudo for the deploy user, or `DEPLOY_PASSWORD` with `sshpass`.
-
-The deploy script never overwrites `config/settings.json` on the server. If it is missing, the remote deploy script seeds it from `config/settings.example.json` so you can edit it on the server before the bot can start.
-
-**Server prerequisite:** Node.js 22.9.0 or newer and npm must already be installed on the server (see section 1 above). The deploy script does not install Node.js for you.
-
-## GitHub Actions CI/CD
-
-Merging into `main` triggers an automatic deploy to the production server via [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml).
-
-**On every push and pull request:** the `test` job runs `npm ci` and `npm test`.
-
-**On push to `main` only:** the `deploy` job runs after tests pass. GitHub Actions sets `CI=true` on the runner; `scripts/deploy.sh` forwards `CI`/`GITHUB_ACTIONS` to the remote script and skips forced TTY (`-tt`) when `DEPLOY_PASSWORD` is unset. The workflow then:
-
-1. Writes the deploy SSH private key from GitHub Secrets
-2. Opens an SSH ControlMaster socket authenticated with that key
-3. Calls `./scripts/deploy.sh --remote`, which reuses the existing socket for rsync and remote build/restart
-
-Required GitHub Secrets (Settings → Secrets and variables → Actions):
-
-| Secret | Purpose |
-|--------|---------|
-| `DEPLOY_SSH_KEY` | Private deploy key (matching the public key in server `authorized_keys`) |
-| `DEPLOY_HOST` | Server hostname, for example `crearec.app` |
-| `DEPLOY_USER` | SSH user, for example `crearec` |
-
-**Server prerequisites for CI deploy** (one-time setup):
-
-- Public deploy key in `~/.ssh/authorized_keys` for the deploy user
-- Passwordless sudo for deploy commands. **The sudoers username must match `DEPLOY_USER` in GitHub Secrets exactly** (for example `crearec`).
-
-  On the server, as a user with sudo access, run:
-
-  ```sh
-  DEPLOY_USER=crearec   # must match GitHub secret DEPLOY_USER
-  command -v cp systemctl journalctl
-
-  sudo tee "/etc/sudoers.d/${DEPLOY_USER}-deploy" > /dev/null <<EOF
-  ${DEPLOY_USER} ALL=(ALL) NOPASSWD: /bin/cp, /usr/bin/cp, /bin/systemctl, /usr/bin/systemctl, /usr/bin/journalctl
-  EOF
-  sudo chmod 440 "/etc/sudoers.d/${DEPLOY_USER}-deploy"
-  sudo visudo -c -f "/etc/sudoers.d/${DEPLOY_USER}-deploy"
-  ```
-
-  Then **as the deploy user** (not root), verify no password is asked:
-
-  ```sh
-  sudo -n systemctl --version
-  sudo -n cp --version
-  sudo -n systemctl status telegram-video-downloader
-  ```
-
-  If those fail, check: wrong username in sudoers, file permissions not `440`, or binary paths differ from `command -v` output. For a home server, a broader rule also works:
-
-  ```
-  crearec ALL=(ALL) NOPASSWD: ALL
-  ```
-
-- Node.js, `config/settings.json`, and GramJS session already configured on the server
-
-`DEPLOY_PASSWORD` is not used in CI. The workflow never overwrites `config/settings.json` on the server.
-
-After a successful deploy, verify the service:
-
-```sh
-./scripts/service-debian.sh --remote status
-./scripts/service-debian.sh --remote logs
-```
-
-## Service Helper Script
-
-From your local project root, use `scripts/service-debian.sh` to manage the remote systemd service over SSH:
-
-```sh
-./scripts/service-debian.sh restart
-./scripts/service-debian.sh start
-./scripts/service-debian.sh status
-./scripts/service-debian.sh logs
-./scripts/service-debian.sh stop
-./scripts/service-debian.sh --remote status
-```
-
-The script defaults to `SERVER_HOST=192.168.1.135`, `SSH_USER=crearec`, and `SERVICE_NAME=telegram-video-downloader`. Override them when needed:
-
-```sh
-SERVER_HOST=192.168.1.135 SSH_USER=crearec ./scripts/service-debian.sh restart
-```
-
-Optional `DEPLOY_PASSWORD` in local `.env` (or env) works the same way as in `scripts/deploy.sh`.
-
-For a quick operations reference, see `docs/debian-commands.md`.
-
-## Notes
-
-- Keep `config/settings.json` readable only by the service user.
-- If you change `download.directory`, redeploy so `ReadWritePaths` in the installed systemd unit matches `config/settings.json`. Restarting the service is not enough — verify with `sudo grep ReadWritePaths /etc/systemd/system/telegram-video-downloader.service`. The directory must exist before start.
-- The bot only processes messages from users listed in `telegram.userSessions` with a configured GramJS session.
-- Each user who should download files needs an entry in `telegram.userSessions`. Run `npm run login -- --user-id <telegram_user_id>` to add or refresh one.
-- The `/restart` command is restricted to configured users and depends on systemd restarting the process.
-
-## Plex + Synology Storage
-
-Production example on a Debian server with Synology NAS:
+Production example:
 
 ```
 //DS223/video  →  /mnt/synology/video
 ```
 
-Recommended `config/settings.json` values:
+Server `.env`:
+
+```sh
+DOWNLOAD_DIR=/mnt/synology/video
+```
+
+`config/settings.json`:
 
 ```json
 {
   "download": {
-    "directory": "/mnt/synology/video"
-  },
-  "openai": {
-    "apiKey": "..."
-  },
-  "tmdb": {
-    "apiKey": "...",
-    "language": "ru-RU"
+    "directory": "/downloads"
   }
 }
 ```
@@ -272,4 +76,8 @@ Plex libraries:
 - Movies → `/mnt/synology/video/Movies`
 - TV Shows → `/mnt/synology/video/TV Shows`
 
-Get a free TMDB API key from <https://www.themoviedb.org/settings/api>.
+## Notes
+
+- Keep `config/settings.json` readable only by the deploy user.
+- Each allowed Telegram user needs an entry in `telegram.userSessions` (see [docker.md](docker.md) for login).
+- `/restart` in Telegram exits the process; Docker restarts the container.

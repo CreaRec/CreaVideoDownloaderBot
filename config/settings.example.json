@@ -9,7 +9,7 @@
     "botUsername": "your_bot_username_without_at"
   },
   "download": {
-    "directory": "/absolute/path/to/save/videos",
+    "directory": "/downloads",
     "overwriteExisting": false,
     "maxConcurrent": 3
   },

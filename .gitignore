@@ -1,7 +1,9 @@
 node_modules/
 dist/
 
-# Local deploy credentials (SSH/sudo for scripts/deploy.sh).
+# Local files (not used by the running app).
+# App secrets live in config/settings.json on the server.
+# Deploy is via GitHub Actions on push to main.
 .env
 .env.local
 .env.*.local

@@ -1,0 +1,17 @@
+node_modules
+dist
+.git
+.github
+.cursor
+.env
+.env.*
+!.env.example
+config/settings.json
+data
+*.log
+.DS_Store
+tests
+docs
+scripts
+deploy
+README.md
