@@ -11,9 +11,11 @@ import {
   answerCallback as answerCallbackQuery,
   BOT_HELP_MESSAGE,
   BOT_PRIVATE_MESSAGE,
+  createMainReplyKeyboard,
   getCallbackData,
   getCallbackMessage,
   isAllowedUser,
+  isFilesButtonText,
 } from "../telegram/telegram-ctx.js";
 import type { TmdbCandidate, TmdbResolver } from "../metadata/tmdb-resolver.js";
 
@@ -96,7 +98,7 @@ export class MetadataFixHandlers {
 
     const text = ctx.message.text.trim();
 
-    if (!text || text.startsWith("/")) {
+    if (!text || text.startsWith("/") || isFilesButtonText(text)) {
       return false;
     }
 
@@ -115,7 +117,7 @@ export class MetadataFixHandlers {
     const pending = this.getPendingFixHint(userId);
 
     if (!pending) {
-      await ctx.reply(BOT_HELP_MESSAGE);
+      await ctx.reply(BOT_HELP_MESSAGE, createMainReplyKeyboard());
       return;
     }
 

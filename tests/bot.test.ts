@@ -10,6 +10,11 @@ import { DownloadSemaphore } from "../src/download/download-semaphore.js";
 import { createProgressReporter, formatBytes } from "../src/download/progress-reporter.js";
 import { StatusEditScheduler } from "../src/download/status-edit-scheduler.js";
 import { getCaption, getDisplayFileName, getSuggestedFileName } from "../src/telegram/telegram-message.js";
+import {
+  createMainReplyKeyboard,
+  FILES_BUTTON_TEXT,
+  isFilesButtonText,
+} from "../src/telegram/telegram-ctx.js";
 import { createLoggerSpy, createSettings, withTempDir, type LoggerSpy } from "./helpers/test-utils.js";
 
 afterEach(() => {
@@ -416,6 +421,57 @@ test("download semaphore limits active acquisitions to maxConcurrent", async () 
 
   await Promise.all(tasks);
   assert.equal(active, 0);
+});
+
+test("main reply keyboard exposes a Files button", () => {
+  assert.deepEqual(createMainReplyKeyboard(), {
+    reply_markup: {
+      keyboard: [[{ text: FILES_BUTTON_TEXT }]],
+      resize_keyboard: true,
+      is_persistent: true,
+    },
+  });
+  assert.equal(isFilesButtonText("Files"), true);
+  assert.equal(isFilesButtonText(" Files "), true);
+  assert.equal(isFilesButtonText("/files"), false);
+  assert.equal(isFilesButtonText("help"), false);
+});
+
+test("Files button text opens the download tree for authorized users", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
+
+    const service = new BotService(
+      createSettings({
+        download: {
+          directory: dir,
+        },
+      }),
+      {} as never,
+      createLoggerSpy(),
+    );
+    const handleTextMessage = (
+      service as unknown as {
+        handleTextMessage: (ctx: unknown) => Promise<void>;
+      }
+    ).handleTextMessage.bind(service);
+    const replies: Array<{ message: string; extra?: unknown }> = [];
+
+    await handleTextMessage({
+      from: { id: 1234 },
+      chat: { id: 5678 },
+      message: { text: FILES_BUTTON_TEXT },
+      reply: async (message: string, extra?: unknown) => {
+        replies.push({ message, extra });
+        return { message_id: 99 };
+      },
+    });
+
+    assert.equal(replies.length, 1);
+    assert.match(replies[0].message, /Files in \//);
+    assert.match(replies[0].message, /File loose\.mp4/);
+    assert.ok(replies[0].extra);
+  });
 });
 
 test("/files command replies with private message for unauthorized users", async () => {

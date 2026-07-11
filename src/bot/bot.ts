@@ -19,8 +19,10 @@ import { StatusEditScheduler } from "../download/status-edit-scheduler.js";
 import {
   BOT_HELP_MESSAGE,
   BOT_PRIVATE_MESSAGE,
+  createMainReplyKeyboard,
   getCommandArgument,
   isAllowedUser,
+  isFilesButtonText,
   type ReplyFn,
 } from "../telegram/telegram-ctx.js";
 import type { DownloadableMessage } from "../telegram/telegram-message.js";
@@ -98,7 +100,10 @@ export class BotService {
         return;
       }
 
-      await ctx.reply("Send or forward a video/document here and I will download it to the configured directory.");
+      await ctx.reply(
+        "Send or forward a video/document here and I will download it to the configured directory.",
+        createMainReplyKeyboard(),
+      );
     });
 
     this.bot.command("files", async (ctx) => {
@@ -140,13 +145,7 @@ export class BotService {
     });
 
     this.bot.on("text", async (ctx) => {
-      if (await this.metadataFix.tryHandleMetadataFixText(ctx)) {
-        return;
-      }
-
-      if (this.isAllowed(ctx.from?.id)) {
-        await ctx.reply(BOT_HELP_MESSAGE);
-      }
+      await this.handleTextMessage(ctx);
     });
 
     this.bot.action(/^file-delete:/, async (ctx) => {
@@ -163,13 +162,30 @@ export class BotService {
 
     this.bot.on("message", async (ctx) => {
       if (this.isAllowed(ctx.from?.id)) {
-        await ctx.reply(BOT_HELP_MESSAGE);
+        await ctx.reply(BOT_HELP_MESSAGE, createMainReplyKeyboard());
       }
     });
 
     this.bot.catch((error, ctx) => {
       this.logger.error(`Bot error while handling update ${ctx.update.update_id}`, error);
     });
+  }
+
+  private async handleTextMessage(ctx: Context): Promise<void> {
+    const text = "message" in ctx && ctx.message && "text" in ctx.message ? ctx.message.text : undefined;
+
+    if (isFilesButtonText(text)) {
+      await this.handleFilesCommand(ctx);
+      return;
+    }
+
+    if (await this.metadataFix.tryHandleMetadataFixText(ctx)) {
+      return;
+    }
+
+    if (this.isAllowed(ctx.from?.id)) {
+      await ctx.reply(BOT_HELP_MESSAGE, createMainReplyKeyboard());
+    }
   }
 
   private async handleDownloadableMessage(

@@ -74,8 +74,8 @@ Send or forward a video to your bot from a user listed in `telegram.userSessions
 
 ## Supported Bot Commands
 
-- `/start`: confirms the bot is available and explains the expected video/document workflow.
-- `/files`: opens the inline file browser for `download.directory`.
+- `/start`: confirms the bot is available, shows the Files reply keyboard, and explains the expected video/document workflow.
+- `Files` (reply keyboard) or `/files`: opens the inline file browser for `download.directory`.
 - `/usage`: shows OpenAI usage for the configured range, or month-to-date when no `openai.usageStartDate` is set.
 - `/usage today`: shows OpenAI usage for the current UTC day.
 - `/usage month`: shows OpenAI usage for the current UTC month.

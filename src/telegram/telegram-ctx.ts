@@ -1,4 +1,5 @@
 import type { Context } from "telegraf";
+import type { ReplyKeyboardMarkup } from "telegraf/types";
 import type { Logger } from "../config/logger.js";
 import type { Settings } from "../config/settings.js";
 import { isConfiguredUser } from "../config/settings.js";
@@ -7,9 +8,28 @@ export type TelegramStatusMessage = { message_id?: number };
 export type ReplyFn = (message: string) => Promise<TelegramStatusMessage>;
 export type CallbackMessage = { message_id: number; chat: { id: number }; text?: string };
 
+export interface MainReplyKeyboard {
+  reply_markup: ReplyKeyboardMarkup;
+}
+
+export const FILES_BUTTON_TEXT = "Files";
 export const BOT_PRIVATE_MESSAGE = "This bot is private.";
 export const BOT_HELP_MESSAGE =
-  "I can download Telegram videos and document-style video files. Send one here to start, use /files to browse downloaded files, use /usage for OpenAI usage, or use /restart to restart the service.";
+  "I can download Telegram videos and document-style video files. Send one here to start, tap Files or use /files to browse downloaded files, use /usage for OpenAI usage, or use /restart to restart the service.";
+
+export function createMainReplyKeyboard(): MainReplyKeyboard {
+  return {
+    reply_markup: {
+      keyboard: [[{ text: FILES_BUTTON_TEXT }]],
+      resize_keyboard: true,
+      is_persistent: true,
+    },
+  };
+}
+
+export function isFilesButtonText(text: string | undefined): boolean {
+  return text?.trim() === FILES_BUTTON_TEXT;
+}
 
 export function isAllowedUser(settings: Settings, userId: number | undefined): userId is number {
   return userId !== undefined && isConfiguredUser(settings, userId);
