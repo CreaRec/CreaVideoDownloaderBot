@@ -3,6 +3,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, mock, test } from "node:test";
 import { BotService } from "../src/bot/bot.js";
+import type { MetadataFixHandlers } from "../src/bot/metadata-fix-handlers.js";
 import { createDeleteButtonReplyMarkup, parseDeleteCallbackData, type DeleteButtonReplyMarkup } from "../src/files/delete-buttons.js";
 import { DownloadCanceledError, type DownloadRequest } from "../src/download/downloader.js";
 import type { FileTreeBrowser } from "../src/files/file-tree.js";
@@ -350,10 +351,12 @@ test("confirming delete aborts the active download and suppresses failed status"
     await outputRegistered;
     assert.equal(capturedTelegramUserId, 1234);
 
-    const deleteCallbackData = edits
+    const deleteButton = edits
       .flatMap((edit) => edit.extra?.reply_markup.inline_keyboard[0] ?? [])
-      .find((button) => button.text === "Delete file")?.callback_data;
-    const deleteCallback = parseDeleteCallbackData(deleteCallbackData);
+      .find((button) => button.text === "Delete file");
+    assert.ok(deleteButton);
+    assert.ok("callback_data" in deleteButton);
+    const deleteCallback = parseDeleteCallbackData(deleteButton.callback_data);
 
     assert.equal(deleteCallback?.action, "ask");
     assert.equal(capturedSignal?.aborted, false);
@@ -473,6 +476,45 @@ test("Files button text opens the download tree for authorized users", async () 
     assert.match(replies[0].message, /Folder Movies\/ \[protected\]/);
     assert.doesNotMatch(replies[0].message, /loose\.mp4/);
     assert.ok(replies[0].extra);
+  });
+});
+
+test("Files button opens the tree without consuming a pending metadata-fix hint", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
+
+    const service = new BotService(
+      createSettings({
+        download: {
+          directory: dir,
+        },
+      }),
+      {} as never,
+      createLoggerSpy(),
+    );
+    const metadataFix = (service as unknown as { metadataFix: MetadataFixHandlers }).metadataFix;
+    metadataFix.setPendingFixHintForTests(1234, "Movies/Demo");
+
+    const handleTextMessage = (
+      service as unknown as {
+        handleTextMessage: (ctx: unknown) => Promise<void>;
+      }
+    ).handleTextMessage.bind(service);
+    const replies: Array<{ message: string; extra?: unknown }> = [];
+
+    await handleTextMessage({
+      from: { id: 1234 },
+      chat: { id: 5678 },
+      message: { text: FILES_BUTTON_TEXT },
+      reply: async (message: string, extra?: unknown) => {
+        replies.push({ message, extra });
+        return { message_id: 99 };
+      },
+    });
+
+    assert.equal(replies.length, 1);
+    assert.match(replies[0].message, /Files in \//);
+    assert.equal(metadataFix.getPendingFixHintForTests(1234)?.relativePath, "Movies/Demo");
   });
 });
 
@@ -748,9 +790,10 @@ test("file tree confirmation callback deletes the selected file and refreshes th
     assert.ok(moviesCallback);
 
     const selectedMovies = await fileTree.renderSelectedToken(moviesCallback.token);
-    const openMovies = fileTree.parseCallbackData(
-      selectedMovies.extra.reply_markup.inline_keyboard.flat().find((button) => button.text === "Open")?.callback_data,
-    );
+    const openButton = selectedMovies.extra.reply_markup.inline_keyboard.flat().find((button) => button.text === "Open");
+    assert.ok(openButton);
+    assert.ok("callback_data" in openButton);
+    const openMovies = fileTree.parseCallbackData(openButton.callback_data);
     assert.ok(openMovies);
 
     const moviesView = await fileTree.renderDirectoryToken(openMovies.token);
