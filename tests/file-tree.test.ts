@@ -7,11 +7,20 @@ import { withTempDir } from "./helpers/test-utils.js";
 
 test("reset clears cached file tree tokens", async () => {
   await withTempDir(async (dir) => {
-    await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
+    await mkdir(path.join(dir, "Movies"), { recursive: true });
+    await writeFile(path.join(dir, "Movies", "loose.mp4"), "video", "utf8");
 
     const browser = new FileTreeBrowser(dir);
     const rootView = await browser.renderRoot();
-    const fileCallback = browser.parseCallbackData(findButton(rootView, "File loose.mp4").callback_data);
+    const moviesCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
+    assert.ok(moviesCallback);
+
+    const selectedMovies = await browser.renderSelectedToken(moviesCallback.token);
+    const openMovies = browser.parseCallbackData(findButton(selectedMovies, "Open").callback_data);
+    assert.ok(openMovies);
+
+    const moviesView = await browser.renderDirectoryToken(openMovies.token);
+    const fileCallback = browser.parseCallbackData(findButton(moviesView, "File loose.mp4").callback_data);
 
     assert.ok(fileCallback);
 
@@ -26,6 +35,7 @@ test("/files tree renders protected roots and keeps them browse-only", async () 
     await mkdir(path.join(dir, "Movies"), { recursive: true });
     await mkdir(path.join(dir, "TV Shows"), { recursive: true });
     await mkdir(path.join(dir, "Undefined"), { recursive: true });
+    await mkdir(path.join(dir, "Архив"), { recursive: true });
     await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
 
     const browser = new FileTreeBrowser(dir);
@@ -34,7 +44,10 @@ test("/files tree renders protected roots and keeps them browse-only", async () 
     assert.match(rootView.message, /Folder Movies\/ \[protected\]/);
     assert.match(rootView.message, /Folder TV Shows\/ \[protected\]/);
     assert.match(rootView.message, /Folder Undefined\/ \[protected\]/);
-    assert.match(rootView.message, /File loose\.mp4/);
+    assert.doesNotMatch(rootView.message, /Архив/);
+    assert.doesNotMatch(rootView.message, /loose\.mp4/);
+    assert.equal(hasButton(rootView, "Folder Архив"), false);
+    assert.equal(hasButton(rootView, "File loose.mp4"), false);
 
     const filmCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
     assert.ok(filmCallback);
@@ -44,6 +57,22 @@ test("/files tree renders protected roots and keeps them browse-only", async () 
     assert.match(selectedFilm.message, /This item cannot be deleted/);
     assert.equal(hasButton(selectedFilm, "Open"), true);
     assert.equal(hasButton(selectedFilm, "Delete"), false);
+  });
+});
+
+test("/files tree rejects paths outside configured root folders", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(path.join(dir, "Архив"), { recursive: true });
+    await writeFile(path.join(dir, "Архив", "clip.mp4"), "video", "utf8");
+
+    const browser = new FileTreeBrowser(dir);
+    const token = (
+      browser as unknown as {
+        getOrCreateToken: (relativePath: string) => string;
+      }
+    ).getOrCreateToken("Архив");
+
+    await assert.rejects(browser.renderSelectedToken(token), /configured root folders/);
   });
 });
 

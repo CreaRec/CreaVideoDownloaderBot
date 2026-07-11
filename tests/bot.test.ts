@@ -439,6 +439,7 @@ test("main reply keyboard exposes a Files button", () => {
 
 test("Files button text opens the download tree for authorized users", async () => {
   await withTempDir(async (dir) => {
+    await mkdir(path.join(dir, "Movies"), { recursive: true });
     await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
 
     const service = new BotService(
@@ -469,7 +470,8 @@ test("Files button text opens the download tree for authorized users", async () 
 
     assert.equal(replies.length, 1);
     assert.match(replies[0].message, /Files in \//);
-    assert.match(replies[0].message, /File loose\.mp4/);
+    assert.match(replies[0].message, /Folder Movies\/ \[protected\]/);
+    assert.doesNotMatch(replies[0].message, /loose\.mp4/);
     assert.ok(replies[0].extra);
   });
 });
@@ -507,6 +509,7 @@ test("/files command replies with private message for unauthorized users", async
 test("/files command replies with the download tree for authorized users", async () => {
   await withTempDir(async (dir) => {
     await mkdir(path.join(dir, "Movies"), { recursive: true });
+    await mkdir(path.join(dir, "Архив"), { recursive: true });
     await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
 
     const service = new BotService(
@@ -537,14 +540,15 @@ test("/files command replies with the download tree for authorized users", async
     assert.equal(replies.length, 1);
     assert.match(replies[0].message, /Files in \//);
     assert.match(replies[0].message, /Folder Movies\/ \[protected\]/);
-    assert.match(replies[0].message, /File loose\.mp4/);
+    assert.doesNotMatch(replies[0].message, /Архив/);
+    assert.doesNotMatch(replies[0].message, /loose\.mp4/);
     assert.ok(replies[0].extra);
   });
 });
 
 test("/files command resets the existing file tree message to a fresh root view", async () => {
   await withTempDir(async (dir) => {
-    await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
+    await mkdir(path.join(dir, "TV Shows"), { recursive: true });
 
     const service = new BotService(
       createSettings({
@@ -593,7 +597,8 @@ test("/files command resets the existing file tree message to a fresh root view"
     assert.equal(edits[0]?.messageId, 100);
     assert.match(edits[0]?.message ?? "", /Files in \//);
     assert.match(edits[0]?.message ?? "", /Folder Movies\/ \[protected\]/);
-    assert.match(edits[0]?.message ?? "", /File loose\.mp4/);
+    assert.match(edits[0]?.message ?? "", /Folder TV Shows\/ \[protected\]/);
+    assert.doesNotMatch(edits[0]?.message ?? "", /loose\.mp4/);
   });
 });
 
@@ -707,10 +712,11 @@ test("/restart command replies and requests service restart for authorized users
 
 test("file tree confirmation callback deletes the selected file and refreshes the parent directory", async () => {
   await withTempDir(async (dir) => {
-    const filePath = path.join(dir, "loose.mp4");
+    const filePath = path.join(dir, "Movies", "loose.mp4");
     const edits: Array<{ message: string; extra?: unknown }> = [];
     const callbackAnswers: string[] = [];
 
+    await mkdir(path.join(dir, "Movies"), { recursive: true });
     await writeFile(filePath, "video", "utf8");
 
     const service = new BotService(
@@ -733,7 +739,22 @@ test("file tree confirmation callback deletes the selected file and refreshes th
       }
     ).handleFileTreeButton.bind(service);
     const rootView = await fileTree.renderRoot();
-    const fileButton = rootView.extra.reply_markup.inline_keyboard.flat().find((button) => button.text === "File loose.mp4");
+    const moviesButton = rootView.extra.reply_markup.inline_keyboard.flat().find((button) => button.text === "Folder Movies");
+
+    assert.ok(moviesButton);
+    assert.ok("callback_data" in moviesButton);
+
+    const moviesCallback = fileTree.parseCallbackData(moviesButton.callback_data);
+    assert.ok(moviesCallback);
+
+    const selectedMovies = await fileTree.renderSelectedToken(moviesCallback.token);
+    const openMovies = fileTree.parseCallbackData(
+      selectedMovies.extra.reply_markup.inline_keyboard.flat().find((button) => button.text === "Open")?.callback_data,
+    );
+    assert.ok(openMovies);
+
+    const moviesView = await fileTree.renderDirectoryToken(openMovies.token);
+    const fileButton = moviesView.extra.reply_markup.inline_keyboard.flat().find((button) => button.text === "File loose.mp4");
 
     assert.ok(fileButton);
     assert.ok("callback_data" in fileButton);
@@ -750,7 +771,7 @@ test("file tree confirmation callback deletes the selected file and refreshes th
         message: {
           message_id: 99,
           chat: { id: 1234 },
-          text: "Selected file: loose.mp4",
+          text: "Selected file: Movies/loose.mp4",
         },
       },
       telegram: {
@@ -765,8 +786,7 @@ test("file tree confirmation callback deletes the selected file and refreshes th
 
     await assert.rejects(stat(filePath));
     assert.equal(callbackAnswers.at(-1), "Item deleted.");
-    assert.match(edits.at(-1)?.message ?? "", /Deleted: loose\.mp4/);
-    assert.match(edits.at(-1)?.message ?? "", /Files in \//);
+    assert.match(edits.at(-1)?.message ?? "", /Deleted: Movies\/loose\.mp4/);
+    assert.match(edits.at(-1)?.message ?? "", /Files in Movies/);
   });
 });
-

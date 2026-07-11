@@ -17,6 +17,19 @@ export function isProtectedRoot(relativePath: string): boolean {
   return !normalizedPath.includes(path.sep) && PROTECTED_ROOT_NAMES.has(normalizedPath);
 }
 
+/** Empty path (virtual root) or any path under a configured media root folder. */
+export function isAllowedBrowsePath(relativePath: string): boolean {
+  const normalizedPath = normalizeRelativePath(relativePath);
+
+  if (normalizedPath === "") {
+    return true;
+  }
+
+  const topLevelName = normalizedPath.split(path.sep)[0] ?? "";
+
+  return PROTECTED_ROOT_NAMES.has(topLevelName);
+}
+
 export async function pruneEmptyParentDirectories(
   deletedPath: string,
   downloadDirectory: string,

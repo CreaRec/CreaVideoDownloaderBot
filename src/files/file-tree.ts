@@ -2,7 +2,13 @@ import { randomBytes } from "node:crypto";
 import { readdir, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { InlineKeyboardMarkup } from "telegraf/types";
-import { isPathInsideDirectory, isProtectedRoot, pruneEmptyParentDirectories } from "../download/download-paths.js";
+import {
+  isAllowedBrowsePath,
+  isPathInsideDirectory,
+  isProtectedRoot,
+  pruneEmptyParentDirectories,
+  PROTECTED_ROOT_NAMES,
+} from "../download/download-paths.js";
 
 export { isPathInsideDirectory } from "../download/download-paths.js";
 
@@ -217,7 +223,18 @@ export class FileTreeBrowser {
     const directoryEntries = await readdir(directoryPath, { withFileTypes: true });
     const entries = await Promise.all(
       directoryEntries
-        .filter((entry) => !entry.name.startsWith("."))
+        .filter((entry) => {
+          if (entry.name.startsWith(".")) {
+            return false;
+          }
+
+          // At download root, only expose configured media root folders.
+          if (relativePath === "") {
+            return entry.isDirectory() && PROTECTED_ROOT_NAMES.has(entry.name);
+          }
+
+          return true;
+        })
         .map(async (entry) => {
           const entryRelativePath = joinRelativePath(relativePath, entry.name);
           const entryPath = this.resolvePath(entryRelativePath);
@@ -264,6 +281,11 @@ export class FileTreeBrowser {
 
   private resolvePath(relativePath: string): string {
     const normalizedPath = normalizeRelativePath(relativePath);
+
+    if (!isAllowedBrowsePath(normalizedPath)) {
+      throw new Error("Refusing to access a path outside the configured root folders.");
+    }
+
     const resolvedPath = path.resolve(this.rootDirectory, normalizedPath);
 
     if (!isPathInsideDirectory(resolvedPath, this.rootDirectory)) {

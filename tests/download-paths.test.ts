@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
-import { isProtectedRoot, pruneEmptyParentDirectories } from "../src/download/download-paths.js";
+import { isAllowedBrowsePath, isProtectedRoot, pruneEmptyParentDirectories } from "../src/download/download-paths.js";
 import { withTempDir } from "./helpers/test-utils.js";
 
 test("isProtectedRoot matches only top-level Movies, TV Shows, and Undefined", () => {
@@ -11,6 +11,17 @@ test("isProtectedRoot matches only top-level Movies, TV Shows, and Undefined", (
   assert.equal(isProtectedRoot("Undefined"), true);
   assert.equal(isProtectedRoot("Movies/Nested"), false);
   assert.equal(isProtectedRoot("loose"), false);
+});
+
+test("isAllowedBrowsePath allows only the download root and configured media roots", () => {
+  assert.equal(isAllowedBrowsePath(""), true);
+  assert.equal(isAllowedBrowsePath("Movies"), true);
+  assert.equal(isAllowedBrowsePath("Movies/Nested"), true);
+  assert.equal(isAllowedBrowsePath("TV Shows/Show/Season 01"), true);
+  assert.equal(isAllowedBrowsePath("Undefined/clip.mp4"), true);
+  assert.equal(isAllowedBrowsePath("Архив"), false);
+  assert.equal(isAllowedBrowsePath("Детское/clip.mp4"), false);
+  assert.equal(isAllowedBrowsePath("loose.mp4"), false);
 });
 
 test("pruneEmptyParentDirectories removes nested empty folders but keeps protected roots", async () => {
