@@ -113,7 +113,7 @@ The Telegram `/restart` command exits the process; Compose `restart: unless-stop
 
 The production image does not include the login CLI tooling path for interactive use. To add or refresh a session:
 
-1. On a machine with a full checkout and Node 22+, point at a copy of the server `config/settings.json` (or edit it over SSH with Node installed temporarily).
+1. On a machine with a full checkout and Node 24+, point at a copy of the server `config/settings.json` (or edit it over SSH with Node installed temporarily).
 2. Run `npm run login -- --user-id <telegram_user_id>`.
 3. Copy the updated `settings.json` back to the server deploy directory.
 4. `docker compose restart`.
