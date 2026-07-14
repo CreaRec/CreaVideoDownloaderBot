@@ -588,7 +588,7 @@ test("/files command replies with the download tree for authorized users", async
   });
 });
 
-test("/files command sends a new root view message every time", async () => {
+test("/files command sends a new root view and deletes the previous message when known", async () => {
   await withTempDir(async (dir) => {
     await mkdir(path.join(dir, "TV Shows"), { recursive: true });
 
@@ -607,6 +607,7 @@ test("/files command sends a new root view message every time", async () => {
       }
     ).handleFilesCommand.bind(service);
     const replies: Array<{ message: string; extra?: unknown }> = [];
+    const deletions: Array<{ chatId: number; messageId: number }> = [];
     let nextMessageId = 100;
     const createContext = () => ({
       from: { id: 1234 },
@@ -614,6 +615,11 @@ test("/files command sends a new root view message every time", async () => {
       reply: async (message: string, extra?: unknown) => {
         replies.push({ message, extra });
         return { message_id: nextMessageId++ };
+      },
+      telegram: {
+        deleteMessage: async (chatId: number, messageId: number) => {
+          deletions.push({ chatId, messageId });
+        },
       },
     });
 
@@ -623,6 +629,7 @@ test("/files command sends a new root view message every time", async () => {
     await handleFilesCommand(createContext());
 
     assert.equal(replies.length, 2);
+    assert.deepEqual(deletions, [{ chatId: 5678, messageId: 100 }]);
     assert.match(replies[0]?.message ?? "", /Folder TV Shows\/ \[protected\]/);
     assert.doesNotMatch(replies[0]?.message ?? "", /Folder Movies\//);
     assert.match(replies[1]?.message ?? "", /Files in \//);

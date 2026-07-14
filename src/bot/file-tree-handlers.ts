@@ -12,6 +12,8 @@ import {
 } from "../telegram/telegram-ctx.js";
 
 export class FileTreeHandlers {
+  private readonly fileTreeMessageIdByChat = new Map<number, number>();
+
   constructor(
     private readonly settings: Settings,
     private readonly logger: Logger,
@@ -25,9 +27,28 @@ export class FileTreeHandlers {
       return;
     }
 
+    const chatId = ctx.chat?.id;
+
+    if (chatId === undefined) {
+      return;
+    }
+
     this.fileTree.reset();
     const view = await this.fileTree.renderRoot();
-    await ctx.reply(view.message, view.extra);
+    const existingMessageId = this.fileTreeMessageIdByChat.get(chatId);
+
+    if (existingMessageId !== undefined) {
+      try {
+        await ctx.telegram.deleteMessage(chatId, existingMessageId);
+      } catch (error) {
+        this.logger.warn("Could not delete previous file tree message.", error);
+      }
+
+      this.fileTreeMessageIdByChat.delete(chatId);
+    }
+
+    const message = await ctx.reply(view.message, view.extra);
+    this.fileTreeMessageIdByChat.set(chatId, message.message_id);
   }
 
   async handleFileTreeButton(ctx: Context): Promise<void> {
