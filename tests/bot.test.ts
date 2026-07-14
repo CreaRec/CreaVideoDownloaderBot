@@ -588,7 +588,7 @@ test("/files command replies with the download tree for authorized users", async
   });
 });
 
-test("/files command resets the existing file tree message to a fresh root view", async () => {
+test("/files command sends a new root view message every time", async () => {
   await withTempDir(async (dir) => {
     await mkdir(path.join(dir, "TV Shows"), { recursive: true });
 
@@ -607,24 +607,13 @@ test("/files command resets the existing file tree message to a fresh root view"
       }
     ).handleFilesCommand.bind(service);
     const replies: Array<{ message: string; extra?: unknown }> = [];
-    const edits: Array<{ chatId: number; messageId: number; message: string; extra?: unknown }> = [];
+    let nextMessageId = 100;
     const createContext = () => ({
       from: { id: 1234 },
       chat: { id: 5678 },
       reply: async (message: string, extra?: unknown) => {
         replies.push({ message, extra });
-        return { message_id: 100 };
-      },
-      telegram: {
-        editMessageText: async (
-          chatId: number,
-          messageId: number,
-          _inlineMessageId: undefined,
-          message: string,
-          extra?: unknown,
-        ) => {
-          edits.push({ chatId, messageId, message, extra });
-        },
+        return { message_id: nextMessageId++ };
       },
     });
 
@@ -633,14 +622,13 @@ test("/files command resets the existing file tree message to a fresh root view"
 
     await handleFilesCommand(createContext());
 
-    assert.equal(replies.length, 1);
-    assert.equal(edits.length, 1);
-    assert.equal(edits[0]?.chatId, 5678);
-    assert.equal(edits[0]?.messageId, 100);
-    assert.match(edits[0]?.message ?? "", /Files in \//);
-    assert.match(edits[0]?.message ?? "", /Folder Movies\/ \[protected\]/);
-    assert.match(edits[0]?.message ?? "", /Folder TV Shows\/ \[protected\]/);
-    assert.doesNotMatch(edits[0]?.message ?? "", /loose\.mp4/);
+    assert.equal(replies.length, 2);
+    assert.match(replies[0]?.message ?? "", /Folder TV Shows\/ \[protected\]/);
+    assert.doesNotMatch(replies[0]?.message ?? "", /Folder Movies\//);
+    assert.match(replies[1]?.message ?? "", /Files in \//);
+    assert.match(replies[1]?.message ?? "", /Folder Movies\/ \[protected\]/);
+    assert.match(replies[1]?.message ?? "", /Folder TV Shows\/ \[protected\]/);
+    assert.doesNotMatch(replies[1]?.message ?? "", /loose\.mp4/);
   });
 });
 
