@@ -186,6 +186,39 @@ export class TmdbResolver {
     }
   }
 
+  async findCandidatesByImdbId(imdbId: string): Promise<TmdbCandidate[]> {
+    if (!this.settings.tmdb.apiKey) {
+      return [];
+    }
+
+    try {
+      const response = await this.tmdbFetch<TmdbFindResponse>(`/find/${imdbId}`, {
+        external_source: "imdb_id",
+      });
+
+      const movies = (response.movie_results ?? []).map((result) => ({
+        kind: "film" as const,
+        tmdbId: result.id,
+        title: result.title,
+        year: getYear(result.release_date),
+        score: result.popularity ?? 0,
+      }));
+
+      const shows = (response.tv_results ?? []).map((result) => ({
+        kind: "tv_show" as const,
+        tmdbId: result.id,
+        title: result.name,
+        year: getYear(result.first_air_date),
+        score: result.popularity ?? 0,
+      }));
+
+      return [...movies, ...shows].sort((left, right) => right.score - left.score);
+    } catch (error) {
+      this.logger.warn(`TMDB IMDb lookup failed for ${imdbId}.`, error);
+      return [];
+    }
+  }
+
   async resolveCandidateById(kind: "film" | "tv_show", tmdbId: number): Promise<TmdbResolvedTitle | undefined> {
     if (!this.settings.tmdb.apiKey) {
       return undefined;
@@ -332,6 +365,11 @@ interface TmdbSearchTvResult {
 
 interface TmdbSearchTvResponse {
   results: TmdbSearchTvResult[];
+}
+
+interface TmdbFindResponse {
+  movie_results?: TmdbSearchMovieResult[];
+  tv_results?: TmdbSearchTvResult[];
 }
 
 interface TmdbExternalIds {

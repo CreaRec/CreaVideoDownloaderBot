@@ -290,6 +290,35 @@ test("searchCandidates returns a single TV candidate when only one match exists"
   assert.ok(candidates[0].score > 0);
 });
 
+test("findCandidatesByImdbId returns movie and TV matches from /find", async () => {
+  mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+    const resolved = new URL(url);
+    assert.equal(resolved.pathname, "/3/find/tt27200708");
+    assert.equal(resolved.searchParams.get("external_source"), "imdb_id");
+
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        movie_results: [{ id: 99, title: "Mother Mary", release_date: "2026-03-20", popularity: 12 }],
+        tv_results: [],
+      }),
+    };
+  });
+
+  const resolver = new TmdbResolver(createSettings({ tmdb: { apiKey: "tmdb-key" } }), createLoggerSpy());
+  const candidates = await resolver.findCandidatesByImdbId("tt27200708");
+
+  assert.deepEqual(candidates, [
+    { kind: "film", tmdbId: 99, title: "Mother Mary", year: 2026, score: 12 },
+  ]);
+});
+
+test("findCandidatesByImdbId returns empty without a TMDB API key", async () => {
+  const resolver = new TmdbResolver(createSettings(), createLoggerSpy());
+  assert.deepEqual(await resolver.findCandidatesByImdbId("tt1375666"), []);
+});
+
 test("resolveCandidateById loads film external ids", async () => {
   mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
     const pathName = new URL(url).pathname;

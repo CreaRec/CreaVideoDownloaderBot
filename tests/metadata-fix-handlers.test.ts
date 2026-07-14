@@ -109,6 +109,7 @@ function createHandlers(options: {
   };
   tmdbResolver?: {
     searchCandidates: (input: unknown) => Promise<unknown[]>;
+    findCandidatesByImdbId?: (imdbId: string) => Promise<unknown[]>;
     resolveCandidateById: (kind: string, tmdbId: number) => Promise<unknown>;
   };
   hintParser?: {
@@ -129,6 +130,9 @@ function createHandlers(options: {
     (options.fileTree ?? new FileTreeBrowser(options.tempDir)) as never,
     (options.tmdbResolver ?? {
       async searchCandidates() {
+        return [];
+      },
+      async findCandidatesByImdbId() {
         return [];
       },
       async resolveCandidateById() {
@@ -191,6 +195,9 @@ test("tryHandleMetadataFixText processes a title hint and shows candidates", asy
         async searchCandidates() {
           return [{ kind: "film", tmdbId: 1, title: "Inception", year: 2010, score: 10 }];
         },
+        async findCandidatesByImdbId() {
+          throw new Error("IMDb lookup should not run for title hints");
+        },
         async resolveCandidateById() {
           return undefined;
         },
@@ -213,6 +220,116 @@ test("tryHandleMetadataFixText processes a title hint and shows candidates", asy
     assert.match(replies[1]?.message ?? "", /Choose the correct film/);
     assert.match(replies[1]?.message ?? "", /Search: Inception \(2010\)/);
     assert.ok(replies[1]?.extra);
+  });
+});
+
+test("tryHandleMetadataFixText looks up an IMDb URL without calling the hint parser", async () => {
+  await withTempDir(async (tempDir) => {
+    const replies: Array<{ message: string; extra?: unknown }> = [];
+    let hintParserCalls = 0;
+    const handlers = createHandlers({
+      tempDir,
+      hintParser: {
+        async parse() {
+          hintParserCalls += 1;
+          return { kind: "undefined", reason: "should not run" };
+        },
+      },
+      tmdbResolver: {
+        async searchCandidates() {
+          throw new Error("Title search should not run for IMDb ids");
+        },
+        async findCandidatesByImdbId(imdbId: string) {
+          assert.equal(imdbId, "tt27200708");
+          return [{ kind: "film", tmdbId: 99, title: "Mother Mary", year: 2026, score: 1 }];
+        },
+        async resolveCandidateById() {
+          return undefined;
+        },
+      },
+    });
+    handlers.setPendingFixHintForTests(1234, "Movies/Wrong Folder");
+
+    const handled = await handlers.tryHandleMetadataFixText({
+      from: { id: 1234 },
+      message: { text: "https://www.imdb.com/title/tt27200708/" },
+      reply: async (message: string, extra?: unknown) => {
+        replies.push({ message, extra });
+        return { message_id: replies.length };
+      },
+    } as never);
+
+    assert.equal(handled, true);
+    assert.equal(hintParserCalls, 0);
+    assert.match(replies[1]?.message ?? "", /Choose the correct film/);
+    assert.match(replies[1]?.message ?? "", /IMDb: tt27200708/);
+    assert.ok(replies[1]?.extra);
+  });
+});
+
+test("tryHandleMetadataFixText looks up a bare IMDb id", async () => {
+  await withTempDir(async (tempDir) => {
+    const replies: Array<{ message: string; extra?: unknown }> = [];
+    const handlers = createHandlers({
+      tempDir,
+      tmdbResolver: {
+        async searchCandidates() {
+          return [];
+        },
+        async findCandidatesByImdbId(imdbId: string) {
+          assert.equal(imdbId, "tt1375666");
+          return [{ kind: "film", tmdbId: 27205, title: "Inception", year: 2010, score: 1 }];
+        },
+        async resolveCandidateById() {
+          return undefined;
+        },
+      },
+    });
+    handlers.setPendingFixHintForTests(1234, "Movies/Demo");
+
+    await handlers.tryHandleMetadataFixText({
+      from: { id: 1234 },
+      message: { text: "tt1375666" },
+      reply: async (message: string, extra?: unknown) => {
+        replies.push({ message, extra });
+        return { message_id: replies.length };
+      },
+    } as never);
+
+    assert.match(replies[1]?.message ?? "", /IMDb: tt1375666/);
+  });
+});
+
+test("tryHandleMetadataFixText reports when an IMDb id has no TMDB match", async () => {
+  await withTempDir(async (tempDir) => {
+    const replies: string[] = [];
+    const handlers = createHandlers({
+      tempDir,
+      tmdbResolver: {
+        async searchCandidates() {
+          return [];
+        },
+        async findCandidatesByImdbId() {
+          return [];
+        },
+        async resolveCandidateById() {
+          return undefined;
+        },
+      },
+    });
+    handlers.setPendingFixHintForTests(1234, "Movies/Demo");
+
+    await handlers.tryHandleMetadataFixText({
+      from: { id: 1234 },
+      message: { text: "tt0000001" },
+      reply: async (message: string) => {
+        replies.push(message);
+        return { message_id: replies.length };
+      },
+    } as never);
+
+    assert.equal(replies[0], "Looking up TMDB matches...");
+    assert.equal(replies[1], "No TMDB match found for IMDb ID tt0000001.");
   });
 });
 
@@ -463,6 +580,7 @@ test("startMetadataFix seeds a pending hint and asks for a correction", async ()
     );
 
     assert.match(replies[0] ?? "", /Fix metadata for folder: Movies\/Demo/);
+    assert.match(replies[0] ?? "", /IMDb link\/ID/);
     assert.deepEqual(answers, ["Send a correction hint."]);
     assert.equal(handlers.getPendingFixHintForTests(1234)?.relativePath, "Movies/Demo");
   });

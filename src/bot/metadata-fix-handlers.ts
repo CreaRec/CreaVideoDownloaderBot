@@ -4,6 +4,7 @@ import type { Context } from "telegraf";
 import type { InlineKeyboardMarkup } from "telegraf/types";
 import type { FileTreeBrowser } from "../files/file-tree.js";
 import type { Logger } from "../config/logger.js";
+import { parseImdbId } from "../metadata/imdb-id.js";
 import type { MetadataFixHintParser } from "../metadata/metadata-fix-hint.js";
 import type { MetadataFixRenamer } from "../metadata/metadata-fix-renamer.js";
 import type { Settings } from "../config/settings.js";
@@ -76,7 +77,7 @@ export class MetadataFixHandlers {
     await ctx.reply(
       [
         `Fix metadata for folder: ${formatRelativePath(relativePath)}`,
-        "Send the correct title as text and/or a screenshot.",
+        "Send the correct title as text and/or a screenshot, or an IMDb link/ID.",
         "I will show TMDB matches for you to choose from.",
       ].join("\n"),
     );
@@ -192,7 +193,7 @@ export class MetadataFixHandlers {
 
     const candidate = pending.candidates.find((entry) => entry.tmdbId === callback.tmdbId);
 
-    if (!candidate || candidate.kind !== pending.kind) {
+    if (!candidate) {
       await this.answerCallback(ctx, "Selected match is not available.");
       return;
     }
@@ -200,7 +201,7 @@ export class MetadataFixHandlers {
     await this.answerCallback(ctx, "Applying metadata...");
     this.clearPendingFixPick(ctx.from.id, callback.token);
 
-    const resolved = await this.tmdbResolver.resolveCandidateById(pending.kind, candidate.tmdbId);
+    const resolved = await this.tmdbResolver.resolveCandidateById(candidate.kind, candidate.tmdbId);
 
     if (!resolved) {
       if (message) {
@@ -285,6 +286,20 @@ export class MetadataFixHandlers {
 
     await ctx.reply("Looking up TMDB matches...");
 
+    const imdbId = parseImdbId(input.text);
+
+    if (imdbId) {
+      const candidates = await this.tmdbResolver.findCandidatesByImdbId(imdbId);
+
+      if (candidates.length === 0) {
+        await ctx.reply(`No TMDB match found for IMDb ID ${imdbId}.`);
+        return;
+      }
+
+      await this.presentCandidates(ctx, userId, relativePath, candidates, `IMDb: ${imdbId}`);
+      return;
+    }
+
     const folderName = path.basename(relativePath) || relativePath;
     const hint = await this.metadataFixHintParser.parse({
       folderName,
@@ -311,11 +326,31 @@ export class MetadataFixHandlers {
       return;
     }
 
+    await this.presentCandidates(
+      ctx,
+      userId,
+      relativePath,
+      candidates,
+      `Search: ${hint.title}${hint.year ? ` (${hint.year})` : ""}`,
+    );
+  }
+
+  private async presentCandidates(
+    ctx: Context,
+    userId: number,
+    relativePath: string,
+    candidates: TmdbCandidate[],
+    searchLabel: string,
+  ): Promise<void> {
+    const kind = candidates[0]!.kind;
+    const homogeneous = candidates.every((candidate) => candidate.kind === kind);
+    const kindLabel = homogeneous ? (kind === "film" ? "film" : "TV show") : "title";
+
     this.clearPendingFixPick(userId);
     const token = createFixPickToken();
     this.pendingFixPickByToken.set(token, {
       relativePath,
-      kind: hint.kind,
+      kind,
       candidates,
       expiresAt: Date.now() + METADATA_FIX_TTL_MS,
     });
@@ -323,8 +358,8 @@ export class MetadataFixHandlers {
 
     await ctx.reply(
       [
-        `Choose the correct ${hint.kind === "film" ? "film" : "TV show"} for: ${formatRelativePath(relativePath)}`,
-        `Search: ${hint.title}${hint.year ? ` (${hint.year})` : ""}`,
+        `Choose the correct ${kindLabel} for: ${formatRelativePath(relativePath)}`,
+        searchLabel,
         "Even a single match must be confirmed.",
       ].join("\n"),
       createCandidateReplyMarkup(token, candidates),
