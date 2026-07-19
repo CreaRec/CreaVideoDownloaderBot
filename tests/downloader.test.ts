@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isDownloadCanceled, TelegramDownloader, type DownloadProgress } from "../src/download/downloader.js";
 import type { PlexMetadata } from "../src/metadata/media-metadata.js";
+import { buildMoviePath, buildTvShowPath, buildUndefinedPath } from "../src/metadata/plex-paths.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
 test("downloadFromBotMessage requires the downloader to be started", async () => {
@@ -272,12 +273,167 @@ test("start fails when no GramJS sessions are configured", async () => {
   await assert.rejects(downloader.start(), /No GramJS user sessions configured/);
 });
 
+test("prepareDownload reports existingPath when a library duplicate is found by id", async () => {
+  await withTempDir(async (dir) => {
+    const existing = path.join(
+      dir,
+      "Movies",
+      "Old Title (2010) {imdb-tt1375666}",
+      "Old Title (2010) {imdb-tt1375666}.mkv",
+    );
+    await mkdir(path.dirname(existing), { recursive: true });
+    await writeFile(existing, "old");
+
+    const downloader = createStartedDownloader({
+      downloadDirectory: dir,
+      metadata: {
+        kind: "film",
+        title: "Inception",
+        year: 2010,
+        plexIds: { imdb: "tt1375666" },
+      },
+      client: createFakeClient({ messages: [{ id: 50, media: media("MessageMediaDocument") }] }),
+      useRealBuildOutputPath: true,
+    });
+
+    const prepared = await downloader.prepareDownload({
+      botMessageId: 50,
+      telegramUserId: 1234,
+      mediaKind: "video",
+      suggestedFileName: "inception.mkv",
+    });
+
+    assert.equal(prepared.existingPath, existing);
+    assert.match(prepared.canonicalPath, /Inception \(2010\) \{imdb-tt1375666\}/);
+  });
+});
+
+test("downloadPrepared replace deletes the existing duplicate then writes the canonical path", async () => {
+  await withTempDir(async (dir) => {
+    const existing = path.join(
+      dir,
+      "Movies",
+      "Old Title (2010) {imdb-tt1375666}",
+      "Old Title (2010) {imdb-tt1375666}.mkv",
+    );
+    await mkdir(path.dirname(existing), { recursive: true });
+    await writeFile(existing, "old");
+
+    const fakeClient = createFakeClient({ messages: [{ id: 51, media: media("MessageMediaDocument") }] });
+    const downloader = createStartedDownloader({
+      downloadDirectory: dir,
+      metadata: {
+        kind: "film",
+        title: "Inception",
+        year: 2010,
+        plexIds: { imdb: "tt1375666" },
+      },
+      client: fakeClient,
+      useRealBuildOutputPath: true,
+    });
+
+    const prepared = await downloader.prepareDownload({
+      botMessageId: 51,
+      telegramUserId: 1234,
+      mediaKind: "video",
+      suggestedFileName: "inception.mkv",
+    });
+    const result = await downloader.downloadPrepared(
+      prepared,
+      {
+        botMessageId: 51,
+        telegramUserId: 1234,
+        mediaKind: "video",
+        suggestedFileName: "inception.mkv",
+      },
+      "replace",
+    );
+
+    assert.equal(result.outputPath, prepared.canonicalPath);
+    await assert.rejects(stat(existing), /ENOENT/);
+    assert.equal((await stat(result.outputPath)).size, Buffer.byteLength("downloaded"));
+    assert.equal(fakeClient.downloadedMessage?.id, 51);
+  });
+});
+
+test("downloadPrepared keep both leaves the existing file and writes a unique path", async () => {
+  await withTempDir(async (dir) => {
+    const canonical = path.join(
+      dir,
+      "Movies",
+      "Inception (2010) {imdb-tt1375666}",
+      "Inception (2010) {imdb-tt1375666}.mkv",
+    );
+    await mkdir(path.dirname(canonical), { recursive: true });
+    await writeFile(canonical, "old");
+
+    const fakeClient = createFakeClient({ messages: [{ id: 52, media: media("MessageMediaDocument") }] });
+    const downloader = createStartedDownloader({
+      downloadDirectory: dir,
+      metadata: {
+        kind: "film",
+        title: "Inception",
+        year: 2010,
+        plexIds: { imdb: "tt1375666" },
+      },
+      client: fakeClient,
+      useRealBuildOutputPath: true,
+    });
+
+    const prepared = await downloader.prepareDownload({
+      botMessageId: 52,
+      telegramUserId: 1234,
+      mediaKind: "video",
+      suggestedFileName: "inception.mkv",
+    });
+    const result = await downloader.downloadPrepared(
+      prepared,
+      {
+        botMessageId: 52,
+        telegramUserId: 1234,
+        mediaKind: "video",
+        suggestedFileName: "inception.mkv",
+      },
+      "keep",
+    );
+
+    assert.equal(prepared.existingPath, canonical);
+    assert.equal(
+      result.outputPath,
+      path.join(dir, "Movies", "Inception (2010) {imdb-tt1375666}", "Inception (2010) {imdb-tt1375666}-1.mkv"),
+    );
+    assert.equal((await stat(canonical)).size, Buffer.byteLength("old"));
+    assert.equal((await stat(result.outputPath)).size, Buffer.byteLength("downloaded"));
+  });
+});
+
+test("downloadPrepared rejects skip choice", async () => {
+  await withTempDir(async (dir) => {
+    const downloader = createStartedDownloader({
+      downloadDirectory: dir,
+      metadata: { kind: "film", title: "Movie" },
+      client: createFakeClient({ messages: [{ id: 53, media: media("MessageMediaDocument") }] }),
+    });
+    const prepared = await downloader.prepareDownload({
+      botMessageId: 53,
+      telegramUserId: 1234,
+      mediaKind: "video",
+    });
+
+    await assert.rejects(
+      downloader.downloadPrepared(prepared, { botMessageId: 53, telegramUserId: 1234, mediaKind: "video" }, "skip"),
+      /Cannot download after skip choice/,
+    );
+  });
+});
+
 function createStartedDownloader(options: {
   downloadDirectory: string;
   metadata: PlexMetadata;
   client: FakeClient;
   overwriteExisting?: boolean;
   telegramUserId?: number;
+  useRealBuildOutputPath?: boolean;
 }): TelegramDownloader {
   const telegramUserId = options.telegramUserId ?? 1234;
   const downloader = new TelegramDownloader(
@@ -293,7 +449,7 @@ function createStartedDownloader(options: {
       },
     }),
     createLoggerSpy(),
-    createMetadataService(options.metadata) as never,
+    createMetadataService(options.metadata, options.useRealBuildOutputPath) as never,
   );
 
   Object.assign(downloader as unknown as { userClients: Map<number, { client: FakeClient; botEntity: unknown }> }, {
@@ -303,10 +459,42 @@ function createStartedDownloader(options: {
   return downloader;
 }
 
-function createMetadataService(metadata: PlexMetadata) {
+function createMetadataService(metadata: PlexMetadata, useRealBuildOutputPath = false) {
   return {
     resolveMetadata: async () => metadata,
     buildOutputPath: (resolvedMetadata: PlexMetadata, rootDirectory: string, fallbackFileName: string, extension: string) => {
+      if (useRealBuildOutputPath) {
+        if (resolvedMetadata.kind === "film" && resolvedMetadata.title) {
+          return buildMoviePath({
+            rootDirectory,
+            title: resolvedMetadata.title,
+            year: resolvedMetadata.year,
+            extension,
+            plexIds: resolvedMetadata.plexIds,
+          });
+        }
+
+        if (
+          resolvedMetadata.kind === "tv_show" &&
+          resolvedMetadata.title &&
+          resolvedMetadata.season &&
+          resolvedMetadata.episode
+        ) {
+          return buildTvShowPath({
+            rootDirectory,
+            title: resolvedMetadata.title,
+            year: resolvedMetadata.year,
+            season: resolvedMetadata.season,
+            episode: resolvedMetadata.episode,
+            episodeTitle: resolvedMetadata.episodeTitle,
+            extension,
+            plexIds: resolvedMetadata.plexIds,
+          });
+        }
+
+        return buildUndefinedPath(rootDirectory, fallbackFileName);
+      }
+
       if (resolvedMetadata.kind === "film" && resolvedMetadata.title) {
         return path.join(rootDirectory, "Movies", resolvedMetadata.title, `${resolvedMetadata.title}${extension}`);
       }

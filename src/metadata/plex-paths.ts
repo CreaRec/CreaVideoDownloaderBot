@@ -92,6 +92,70 @@ export function formatPlexIdTags(plexIds: PlexIds | undefined, kind: "film" | "t
   return tags.length > 0 ? ` ${tags.join(" ")}` : "";
 }
 
+const PLEX_ID_TAG_PATTERN = /\{(imdb|tmdb|tvdb)-([^}]+)\}/gi;
+
+export function parsePlexIdTags(name: string): PlexIds {
+  const plexIds: PlexIds = {};
+
+  for (const match of name.matchAll(PLEX_ID_TAG_PATTERN)) {
+    const provider = match[1]?.toLowerCase();
+    const rawValue = match[2]?.trim();
+
+    if (!provider || !rawValue) {
+      continue;
+    }
+
+    if (provider === "imdb") {
+      plexIds.imdb = normalizeImdbId(rawValue);
+      continue;
+    }
+
+    const numericId = Number(rawValue);
+
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      continue;
+    }
+
+    if (provider === "tmdb") {
+      plexIds.tmdb = numericId;
+    } else if (provider === "tvdb") {
+      plexIds.tvdb = numericId;
+    }
+  }
+
+  return plexIds;
+}
+
+export function normalizeImdbId(imdbId: string): string {
+  const trimmed = imdbId.trim().toLowerCase();
+
+  if (trimmed.startsWith("tt")) {
+    return trimmed;
+  }
+
+  return `tt${trimmed}`;
+}
+
+export function plexIdsOverlap(left: PlexIds | undefined, right: PlexIds | undefined): boolean {
+  if (!left || !right) {
+    return false;
+  }
+
+  if (left.imdb && right.imdb && normalizeImdbId(left.imdb) === normalizeImdbId(right.imdb)) {
+    return true;
+  }
+
+  if (left.tmdb !== undefined && right.tmdb !== undefined && left.tmdb === right.tmdb) {
+    return true;
+  }
+
+  if (left.tvdb !== undefined && right.tvdb !== undefined && left.tvdb === right.tvdb) {
+    return true;
+  }
+
+  return false;
+}
+
 export function buildMoviePath(input: PlexMoviePathInput): string {
   const displayTitle = formatPlexTitle(input.title, input.year);
   const idTags = formatPlexIdTags(input.plexIds, "film");

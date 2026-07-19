@@ -3,8 +3,16 @@ import path from "node:path";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import type { Logger } from "../config/logger.js";
-import { buildLegacyFallbackFileName, MediaMetadataService } from "../metadata/media-metadata.js";
+import { deleteDownloadedFile } from "../files/delete-buttons.js";
+import { findDuplicateMedia } from "../metadata/duplicate-scanner.js";
+import {
+  buildLegacyFallbackFileName,
+  MediaMetadataService,
+  type PlexMetadata,
+} from "../metadata/media-metadata.js";
 import { getConfiguredUserSessions, getUserSession, type Settings } from "../config/settings.js";
+
+export type DuplicateChoice = "replace" | "keep" | "skip";
 
 export interface DownloadRequest {
   botMessageId: number;
@@ -27,6 +35,14 @@ export interface DownloadProgress {
   downloadedBytes: number;
   totalBytes?: number;
   percent?: number;
+}
+
+export interface PreparedDownload {
+  metadata: PlexMetadata;
+  canonicalPath: string;
+  existingPath?: string;
+  /** Opaque GramJS message handle used by downloadPrepared. */
+  message: unknown;
 }
 
 export class DownloadCanceledError extends Error {
@@ -90,7 +106,7 @@ export class TelegramDownloader {
     this.logger.info("GramJS clients disconnected.");
   }
 
-  async downloadFromBotMessage(request: DownloadRequest): Promise<DownloadResult> {
+  async prepareDownload(request: DownloadRequest): Promise<PreparedDownload> {
     const userClient = this.getUserClient(request.telegramUserId);
 
     throwIfDownloadCanceled(request.signal);
@@ -103,12 +119,41 @@ export class TelegramDownloader {
 
     throwIfDownloadCanceled(request.signal);
 
-    const outputPath = await this.buildOutputPath(request);
+    const { metadata, canonicalPath } = await this.resolveCanonicalPath(request);
+    const existingPath = await findDuplicateMedia(this.settings.download.directory, metadata);
+
+    return {
+      message,
+      metadata,
+      canonicalPath,
+      existingPath,
+    };
+  }
+
+  async downloadPrepared(
+    prepared: PreparedDownload,
+    request: DownloadRequest,
+    choice?: DuplicateChoice,
+  ): Promise<DownloadResult> {
+    if (choice === "skip") {
+      throw new Error("Cannot download after skip choice.");
+    }
+
+    const userClient = this.getUserClient(request.telegramUserId);
+    throwIfDownloadCanceled(request.signal);
+
+    const outputPath = await this.resolveDownloadOutputPath(prepared, choice);
+
+    if (choice === "replace" && prepared.existingPath) {
+      await deleteDownloadedFile(prepared.existingPath, this.settings.download.directory);
+    }
+
     this.logger.info(`Downloading Telegram message ${request.botMessageId} to ${outputPath}`);
+    await mkdir(path.dirname(outputPath), { recursive: true });
     await request.onOutputPath?.(outputPath);
     throwIfDownloadCanceled(request.signal);
 
-    await userClient.client.downloadMedia(message as never, {
+    await userClient.client.downloadMedia(prepared.message as never, {
       outputFile: outputPath,
       progressCallback: (downloaded: unknown, total: unknown) => {
         throwIfDownloadCanceled(request.signal);
@@ -125,6 +170,53 @@ export class TelegramDownloader {
       outputPath,
       bytes: fileStat.size,
     };
+  }
+
+  async downloadFromBotMessage(request: DownloadRequest): Promise<DownloadResult> {
+    const prepared = await this.prepareDownload(request);
+    return this.downloadPrepared(prepared, request);
+  }
+
+  private async resolveDownloadOutputPath(
+    prepared: PreparedDownload,
+    choice: DuplicateChoice | undefined,
+  ): Promise<string> {
+    if (choice === "replace") {
+      return prepared.canonicalPath;
+    }
+
+    if (choice === "keep") {
+      return getAvailablePath(prepared.canonicalPath);
+    }
+
+    if (this.settings.download.overwriteExisting) {
+      return prepared.canonicalPath;
+    }
+
+    return getAvailablePath(prepared.canonicalPath);
+  }
+
+  private async resolveCanonicalPath(
+    request: DownloadRequest,
+  ): Promise<{ metadata: PlexMetadata; canonicalPath: string }> {
+    const fallbackName = `${request.mediaKind}-${request.botMessageId}${request.mediaKind === "video" ? ".mp4" : ".bin"}`;
+    const originalName = request.suggestedFileName || fallbackName;
+    const safeName = buildLegacyFallbackFileName(originalName);
+    const extension = path.extname(safeName) || (request.mediaKind === "video" ? ".mp4" : ".bin");
+    const metadata = await this.mediaMetadataService.resolveMetadata({
+      fileName: request.suggestedFileName,
+      description: request.caption,
+    });
+    const canonicalPath = this.mediaMetadataService.buildOutputPath(
+      metadata,
+      this.settings.download.directory,
+      safeName,
+      extension,
+    );
+
+    this.logger.info(`Classified Telegram message ${request.botMessageId} as ${metadata.kind}.`, metadata);
+
+    return { metadata, canonicalPath };
   }
 
   private getUserClient(telegramUserId: number): UserDownloadClient {
@@ -206,32 +298,6 @@ export class TelegramDownloader {
     }
 
     return fallback;
-  }
-
-  private async buildOutputPath(request: DownloadRequest): Promise<string> {
-    const fallbackName = `${request.mediaKind}-${request.botMessageId}${request.mediaKind === "video" ? ".mp4" : ".bin"}`;
-    const originalName = request.suggestedFileName || fallbackName;
-    const safeName = buildLegacyFallbackFileName(originalName);
-    const extension = path.extname(safeName) || (request.mediaKind === "video" ? ".mp4" : ".bin");
-    const metadata = await this.mediaMetadataService.resolveMetadata({
-      fileName: request.suggestedFileName,
-      description: request.caption,
-    });
-    const initialPath = this.mediaMetadataService.buildOutputPath(
-      metadata,
-      this.settings.download.directory,
-      safeName,
-      extension,
-    );
-
-    this.logger.info(`Classified Telegram message ${request.botMessageId} as ${metadata.kind}.`, metadata);
-    await mkdir(path.dirname(initialPath), { recursive: true });
-
-    if (this.settings.download.overwriteExisting) {
-      return initialPath;
-    }
-
-    return getAvailablePath(initialPath);
   }
 }
 
@@ -319,7 +385,7 @@ function throwIfDownloadCanceled(signal: AbortSignal | undefined): void {
   }
 }
 
-async function getAvailablePath(filePath: string): Promise<string> {
+export async function getAvailablePath(filePath: string): Promise<string> {
   if (!(await exists(filePath))) {
     return filePath;
   }

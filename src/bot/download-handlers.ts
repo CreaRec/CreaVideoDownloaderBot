@@ -1,15 +1,34 @@
+import type { Context } from "telegraf";
 import {
   createDeleteButtonReplyMarkup,
   type DeleteButtonState,
 } from "../files/delete-buttons.js";
-import { isDownloadCanceled, type TelegramDownloader } from "../download/downloader.js";
+import {
+  createDuplicateChoiceReplyMarkup,
+  createDuplicatePromptMessage,
+  createDuplicateSkippedMessage,
+  DuplicateChoicePending,
+  parseDuplicateCallbackData,
+} from "./duplicate-choice.js";
+import {
+  isDownloadCanceled,
+  type DuplicateChoice,
+  type TelegramDownloader,
+} from "../download/downloader.js";
 import type { ActiveDownloads } from "../download/active-downloads.js";
 import type { DownloadSemaphore } from "../download/download-semaphore.js";
 import type { Logger } from "../config/logger.js";
 import { createProgressReporter } from "../download/progress-reporter.js";
 import type { Settings } from "../config/settings.js";
 import type { StatusEditScheduler } from "../download/status-edit-scheduler.js";
-import { isAllowedUser, safeReply, type ReplyFn } from "../telegram/telegram-ctx.js";
+import {
+  answerCallback,
+  BOT_PRIVATE_MESSAGE,
+  getCallbackData,
+  isAllowedUser,
+  safeReply,
+  type ReplyFn,
+} from "../telegram/telegram-ctx.js";
 import {
   getCaption,
   getDisplayFileName,
@@ -18,6 +37,8 @@ import {
 } from "../telegram/telegram-message.js";
 
 export class DownloadHandlers {
+  private readonly duplicateChoices = new DuplicateChoicePending();
+
   constructor(
     private readonly settings: Settings,
     private readonly downloader: TelegramDownloader,
@@ -105,15 +126,15 @@ export class DownloadHandlers {
 
     try {
       const suggestedFileName = getSuggestedFileName(message);
-      const result = await this.downloader.downloadFromBotMessage({
+      const request = {
         botMessageId: message.message_id,
         telegramUserId: fromUserId,
-        mediaKind: "video" in message ? "video" : "document",
+        mediaKind: ("video" in message ? "video" : "document") as "video" | "document",
         suggestedFileName,
         receivedAt: message.date,
         caption: getCaption(message),
         signal: abortController.signal,
-        onOutputPath: async (outputPath) => {
+        onOutputPath: async (outputPath: string) => {
           if (!statusMessageId) {
             return;
           }
@@ -129,7 +150,48 @@ export class DownloadHandlers {
           await progressReporter.refresh();
         },
         onProgress: progressReporter.report,
-      });
+      };
+
+      const prepared = await this.downloader.prepareDownload(request);
+      let choice: DuplicateChoice | undefined;
+
+      if (prepared.existingPath) {
+        if (!statusMessageId) {
+          this.logger.warn(
+            `Duplicate found for message ${message.message_id} but status message is missing; keeping both.`,
+          );
+          choice = "keep";
+        } else {
+          const pending = this.duplicateChoices.create({
+            chatId,
+            messageId: statusMessageId,
+            existingPath: prepared.existingPath,
+          });
+
+          await this.statusScheduler.scheduleTerminal(
+            chatId,
+            statusMessageId,
+            createDuplicatePromptMessage(prepared.existingPath),
+            createDuplicateChoiceReplyMarkup(pending.token),
+            reply,
+          );
+
+          choice = await pending.choice;
+
+          if (choice === "skip") {
+            await this.statusScheduler.scheduleTerminal(
+              chatId,
+              statusMessageId,
+              createDuplicateSkippedMessage(fileName, prepared.existingPath),
+              undefined,
+              reply,
+            );
+            return;
+          }
+        }
+      }
+
+      const result = await this.downloader.downloadPrepared(prepared, request, choice);
 
       this.logger.info(`Saved Telegram media to ${result.outputPath}`, {
         bytes: result.bytes,
@@ -148,5 +210,38 @@ export class DownloadHandlers {
         this.activeDownloads.clear(deleteToken, abortController);
       }
     }
+  }
+
+  async handleDuplicateChoiceButton(ctx: Context): Promise<void> {
+    const userId = ctx.from?.id;
+
+    if (!isAllowedUser(this.settings, userId)) {
+      await answerCallback(ctx, this.logger, BOT_PRIVATE_MESSAGE);
+      return;
+    }
+
+    const callback = parseDuplicateCallbackData(getCallbackData(ctx));
+
+    if (!callback) {
+      await answerCallback(ctx, this.logger, "Unknown action.");
+      return;
+    }
+
+    const resolved = this.duplicateChoices.resolveToken(callback.token, callback.action);
+
+    if (!resolved) {
+      await answerCallback(ctx, this.logger, "This choice expired.");
+      return;
+    }
+
+    await answerCallback(
+      ctx,
+      this.logger,
+      callback.action === "replace"
+        ? "Replacing existing file…"
+        : callback.action === "keep"
+          ? "Keeping both…"
+          : "Skipped.",
+    );
   }
 }

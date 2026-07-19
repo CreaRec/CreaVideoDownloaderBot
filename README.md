@@ -13,6 +13,7 @@ It uses two Telegram identities:
 - Shows download progress in Telegram and updates the final status with the saved path and file size.
 - Adds an inline delete button to each completed download; deleting an active download cancels it before removing the file.
 - Uses OpenAI + TMDB metadata enrichment to save files into Plex-compatible `Movies`, `TV Shows`, or `Undefined` folders.
+- Detects library duplicates by IMDb/TMDB/TVDB id tags before downloading and asks to Replace, Keep both, or Skip.
 - Provides an inline file browser for downloaded files and folders, including refresh, back navigation, and confirmed deletion.
 - Reports OpenAI usage from Telegram when an OpenAI admin API key is configured.
 - Supports a private `/restart` command; Docker restarts the container after the process exits.

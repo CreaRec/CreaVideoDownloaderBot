@@ -9,6 +9,9 @@ import {
   formatPlexIdTags,
   formatPlexTitle,
   formatSeasonDir,
+  normalizeImdbId,
+  parsePlexIdTags,
+  plexIdsOverlap,
   sanitizePlexName,
 } from "../src/metadata/plex-paths.js";
 
@@ -26,6 +29,21 @@ test("formatPlexIdTags prefers imdb for films and tvdb for shows", () => {
   assert.equal(formatPlexIdTags({ imdb: "tt1375666", tmdb: 27205 }, "film"), " {imdb-tt1375666}");
   assert.equal(formatPlexIdTags({ tmdb: 27205 }, "film"), " {tmdb-27205}");
   assert.equal(formatPlexIdTags({ tvdb: 81189, tmdb: 1396 }, "tv_show"), " {tvdb-81189}");
+});
+
+test("parsePlexIdTags extracts imdb, tmdb, and tvdb tags", () => {
+  assert.deepEqual(parsePlexIdTags("Inception (2010) {imdb-tt1375666}"), { imdb: "tt1375666" });
+  assert.deepEqual(parsePlexIdTags("Inception (2010) {tmdb-27205}"), { tmdb: 27205 });
+  assert.deepEqual(parsePlexIdTags("Breaking Bad (2008) {tvdb-81189}"), { tvdb: 81189 });
+  assert.deepEqual(parsePlexIdTags("Show {tmdb-1396} {tvdb-81189}"), { tmdb: 1396, tvdb: 81189 });
+  assert.deepEqual(parsePlexIdTags("No tags here"), {});
+});
+
+test("normalizeImdbId and plexIdsOverlap match shared identifiers", () => {
+  assert.equal(normalizeImdbId("1375666"), "tt1375666");
+  assert.equal(plexIdsOverlap({ imdb: "tt1375666" }, { imdb: "1375666", tmdb: 1 }), true);
+  assert.equal(plexIdsOverlap({ tmdb: 27205 }, { tmdb: 27205 }), true);
+  assert.equal(plexIdsOverlap({ tvdb: 81189 }, { tmdb: 1396 }), false);
 });
 
 test("buildMoviePath creates Plex movie folders with id tags", () => {

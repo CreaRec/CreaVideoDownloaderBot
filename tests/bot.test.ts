@@ -280,7 +280,17 @@ test("confirming delete aborts the active download and suppresses failed status"
     });
     let capturedTelegramUserId: number | undefined;
     const fakeDownloader = {
-      async downloadFromBotMessage(request: DownloadRequest) {
+      async prepareDownload() {
+        return {
+          message: { id: 1 },
+          metadata: { kind: "undefined" as const, reason: "test" },
+          canonicalPath: outputPath,
+        };
+      },
+      async downloadPrepared(
+        _prepared: unknown,
+        request: DownloadRequest,
+      ) {
         capturedTelegramUserId = request.telegramUserId;
         capturedSignal = request.signal;
         await mkdir(path.dirname(outputPath), { recursive: true });

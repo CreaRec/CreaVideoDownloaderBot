@@ -160,6 +160,10 @@ export class BotService {
       await this.metadataFix.handleMetadataFixButton(ctx);
     });
 
+    this.bot.action(/^dl-dup:/, async (ctx) => {
+      await this.downloadHandlers.handleDuplicateChoiceButton(ctx);
+    });
+
     this.bot.on("message", async (ctx) => {
       if (this.isAllowed(ctx.from?.id)) {
         await ctx.reply(BOT_HELP_MESSAGE, createMainReplyKeyboard());

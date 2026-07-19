@@ -60,8 +60,15 @@ test("DownloadHandlers queues when concurrency is already at the limit", async (
       resolveDownload = resolve;
     });
     const downloader = {
-      async downloadFromBotMessage() {
+      async prepareDownload() {
         resolveDownload();
+        return {
+          message: {},
+          metadata: { kind: "undefined" as const, reason: "test" },
+          canonicalPath: path.join(tempDir, "clip.mp4"),
+        };
+      },
+      async downloadPrepared() {
         return { outputPath: path.join(tempDir, "clip.mp4"), bytes: 1 };
       },
     };
