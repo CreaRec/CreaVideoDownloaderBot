@@ -1,0 +1,12 @@
+---
+description: Never commit or push; only the user may commit and push
+alwaysApply: true
+---
+
+# No Agent Git Commit or Push
+
+- **Never** run `git commit`, `git push`, or any equivalent that creates a commit or publishes to a remote.
+- **Never** stage files for the purpose of committing (`git add` as part of a commit flow).
+- Preparing a commit message or summarizing changes for the user is fine; executing the commit or push is not.
+- Even if a plan, todo, or message says "commit", "push", or "merge", stop and leave those steps to the user.
+- The user alone decides when and how to commit and push.
