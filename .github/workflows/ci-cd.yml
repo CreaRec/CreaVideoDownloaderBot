@@ -78,6 +78,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          ping: ${{ secrets.DEPLOY_HOST }}
+
       - name: Setup SSH key
         run: |
           install -m 700 -d ~/.ssh

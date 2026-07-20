@@ -41,9 +41,9 @@ Push/merge to `main` runs:
 
 1. `test` — `npm test` and a non-pushing Docker build
 2. `publish` — push `ghcr.io/crearec/crea-video-downloader:main` and `:sha-<short>`
-3. `deploy` — SCP `docker-compose.yml`, set `IMAGE_TAG`, `docker compose pull && up -d`
+3. `deploy` — join Tailscale (`tag:ci`), SCP `docker-compose.yml`, set `IMAGE_TAG`, `docker compose pull && up -d`
 
-Required secrets: `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`.
+Required secrets: `DEPLOY_SSH_KEY`, `DEPLOY_HOST` (Tailscale IP or MagicDNS), `DEPLOY_USER`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`. See [docker.md](docker.md) for details.
 
 Actions never overwrites `config/settings.json`.
 

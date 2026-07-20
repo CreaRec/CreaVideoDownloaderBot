@@ -22,6 +22,8 @@ test("CI/CD workflow publishes to GHCR and deploys over SSH", async () => {
 
   assert.match(workflow, /packages:\s*write/);
   assert.match(workflow, /ghcr\.io\/crearec\/crea-video-downloader/);
+  assert.match(workflow, /tailscale\/github-action/);
+  assert.match(workflow, /tag:ci/);
   assert.match(workflow, /docker compose pull/);
   assert.match(workflow, /docker compose up -d/);
   assert.match(workflow, /docker-compose\.yml/);
