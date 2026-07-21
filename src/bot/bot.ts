@@ -5,7 +5,6 @@ import { DeleteButtonState } from "../files/delete-buttons.js";
 import { DeleteHandlers } from "./delete-handlers.js";
 import type { TelegramDownloader } from "../download/downloader.js";
 import { DownloadHandlers } from "./download-handlers.js";
-import { DownloadSemaphore } from "../download/download-semaphore.js";
 import { FileTreeBrowser } from "../files/file-tree.js";
 import { FileTreeHandlers } from "./file-tree-handlers.js";
 import type { Logger } from "../config/logger.js";
@@ -57,7 +56,6 @@ export class BotService {
       logger,
       settings.app.statusEditMinGapMs,
     );
-    const downloadSemaphore = new DownloadSemaphore(settings.download.maxConcurrent);
     const tmdbResolver = new TmdbResolver(settings, logger);
     this.metadataFix = new MetadataFixHandlers(
       settings,
@@ -74,7 +72,6 @@ export class BotService {
       deleteButtons,
       activeDownloads,
       statusScheduler,
-      downloadSemaphore,
       settings.app.statusUpdateMinIntervalMs,
       settings.app.statusUpdatePercentStep,
     );

@@ -65,6 +65,8 @@ export class TelegramDownloader {
   private readonly userClients = new Map<number, UserDownloadClient>();
   /** GramJS is not safe for concurrent downloadMedia on one client; serialize per user. */
   private readonly mediaDownloadTails = new Map<number, Promise<unknown>>();
+  /** Active + waiting exclusive media downloads per user (for Queued UI). */
+  private readonly mediaDownloadInFlight = new Map<number, number>();
 
   constructor(
     private readonly settings: Settings,
@@ -106,7 +108,12 @@ export class TelegramDownloader {
     );
     this.userClients.clear();
     this.mediaDownloadTails.clear();
+    this.mediaDownloadInFlight.clear();
     this.logger.info("GramJS clients disconnected.");
+  }
+
+  isMediaDownloadBusy(telegramUserId: number): boolean {
+    return (this.mediaDownloadInFlight.get(telegramUserId) ?? 0) > 0;
   }
 
   async prepareDownload(request: DownloadRequest): Promise<PreparedDownload> {
@@ -152,11 +159,11 @@ export class TelegramDownloader {
     }
 
     this.logger.info(`Downloading Telegram message ${request.botMessageId} to ${outputPath}`);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await request.onOutputPath?.(outputPath);
-    throwIfDownloadCanceled(request.signal);
 
     await this.withExclusiveMediaDownload(request.telegramUserId, async () => {
+      throwIfDownloadCanceled(request.signal);
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await request.onOutputPath?.(outputPath);
       throwIfDownloadCanceled(request.signal);
 
       await userClient.client.downloadMedia(prepared.message as never, {
@@ -180,6 +187,8 @@ export class TelegramDownloader {
   }
 
   private async withExclusiveMediaDownload<T>(telegramUserId: number, task: () => Promise<T>): Promise<T> {
+    this.mediaDownloadInFlight.set(telegramUserId, (this.mediaDownloadInFlight.get(telegramUserId) ?? 0) + 1);
+
     const previous = this.mediaDownloadTails.get(telegramUserId) ?? Promise.resolve();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -191,12 +200,22 @@ export class TelegramDownloader {
       previous.catch(() => undefined).then(() => gate),
     );
 
-    await previous.catch(() => undefined);
-
     try {
-      return await task();
+      await previous.catch(() => undefined);
+
+      try {
+        return await task();
+      } finally {
+        release();
+      }
     } finally {
-      release();
+      const remaining = (this.mediaDownloadInFlight.get(telegramUserId) ?? 1) - 1;
+
+      if (remaining <= 0) {
+        this.mediaDownloadInFlight.delete(telegramUserId);
+      } else {
+        this.mediaDownloadInFlight.set(telegramUserId, remaining);
+      }
     }
   }
 

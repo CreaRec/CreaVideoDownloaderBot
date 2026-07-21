@@ -16,7 +16,6 @@ const settingsSchema = z.object({
   download: z.object({
     directory: z.string().min(1),
     overwriteExisting: z.boolean().default(false),
-    maxConcurrent: z.number().int().positive().default(3),
   }),
   openai: z
     .object({

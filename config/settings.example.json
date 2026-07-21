@@ -10,8 +10,7 @@
   },
   "download": {
     "directory": "/downloads",
-    "overwriteExisting": false,
-    "maxConcurrent": 3
+    "overwriteExisting": false
   },
   "openai": {
     "apiKey": "",

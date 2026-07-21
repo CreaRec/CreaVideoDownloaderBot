@@ -9,7 +9,6 @@ import {
 } from "../src/bot/duplicate-choice.js";
 import { DownloadHandlers } from "../src/bot/download-handlers.js";
 import { ActiveDownloads } from "../src/download/active-downloads.js";
-import { DownloadSemaphore } from "../src/download/download-semaphore.js";
 import { DeleteButtonState } from "../src/files/delete-buttons.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
@@ -49,6 +48,9 @@ test("DownloadHandlers prompts for duplicate choice and skips download on Skip",
     let downloaded = false;
     const existingPath = `${tempDir}/Movies/Old/old.mkv`;
     const downloader = {
+      isMediaDownloadBusy() {
+        return false;
+      },
       async prepareDownload() {
         return {
           message: {},
@@ -76,7 +78,6 @@ test("DownloadHandlers prompts for duplicate choice and skips download on Skip",
           terminals.push({ text, markup });
         },
       } as never,
-      new DownloadSemaphore(1),
       10_000,
       10,
     );
@@ -117,6 +118,9 @@ test("DownloadHandlers replace downloads after duplicate confirmation", async ()
     let downloadChoice: string | undefined;
     const existingPath = `${tempDir}/Movies/Old/old.mkv`;
     const downloader = {
+      isMediaDownloadBusy() {
+        return false;
+      },
       async prepareDownload() {
         return {
           message: {},
@@ -144,7 +148,6 @@ test("DownloadHandlers replace downloads after duplicate confirmation", async ()
           terminals.push({ text, markup });
         },
       } as never,
-      new DownloadSemaphore(1),
       10_000,
       10,
     );

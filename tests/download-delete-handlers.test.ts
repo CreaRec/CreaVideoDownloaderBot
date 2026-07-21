@@ -5,7 +5,6 @@ import { test } from "node:test";
 import { ActiveDownloads } from "../src/download/active-downloads.js";
 import { DownloadHandlers } from "../src/bot/download-handlers.js";
 import { DeleteHandlers } from "../src/bot/delete-handlers.js";
-import { DownloadSemaphore } from "../src/download/download-semaphore.js";
 import {
   createDeleteButtonReplyMarkup,
   createDeleteConfirmationReplyMarkup,
@@ -23,7 +22,6 @@ test("DownloadHandlers ignores unauthorized users", async () => {
     {} as never,
     new ActiveDownloads(),
     {} as never,
-    new DownloadSemaphore(1),
     10_000,
     10,
   );
@@ -45,23 +43,24 @@ test("DownloadHandlers ignores unauthorized users", async () => {
   );
 });
 
-test("DownloadHandlers queues when concurrency is already at the limit", async () => {
+test("DownloadHandlers shows Queued when the user media download is already busy", async () => {
   await withTempDir(async (tempDir) => {
     const settings = createSettings({
-      download: { directory: tempDir, maxConcurrent: 1 },
+      download: { directory: tempDir },
       app: { stateDirectory: tempDir },
     });
     const terminals: string[] = [];
-    const semaphore = new DownloadSemaphore(1);
-    await semaphore.acquire();
-
     let resolveDownload: () => void = () => {};
-    const downloadStarted = new Promise<void>((resolve) => {
+    const downloadGate = new Promise<void>((resolve) => {
       resolveDownload = resolve;
     });
+    let downloadStarted = false;
+
     const downloader = {
+      isMediaDownloadBusy() {
+        return downloadStarted;
+      },
       async prepareDownload() {
-        resolveDownload();
         return {
           message: {},
           metadata: { kind: "undefined" as const, reason: "test" },
@@ -69,6 +68,8 @@ test("DownloadHandlers queues when concurrency is already at the limit", async (
         };
       },
       async downloadPrepared() {
+        downloadStarted = true;
+        await downloadGate;
         return { outputPath: path.join(tempDir, "clip.mp4"), bytes: 1 };
       },
     };
@@ -83,27 +84,47 @@ test("DownloadHandlers queues when concurrency is already at the limit", async (
           terminals.push(message);
         },
       } as never,
-      semaphore,
       10_000,
       10,
     );
 
-    const runPromise = handlers.runDownloadWithConcurrency(
+    const first = handlers.downloadAndNotify(
       1234,
-      { message_id: 1, date: 1_000, video: { file_name: "clip.mp4" } } as never,
+      { message_id: 1, date: 1_000, video: { file_name: "first.mp4" } } as never,
+      1234,
+      async () => ({ message_id: 98 }),
+      98,
+    );
+
+    await waitFor(() => downloadStarted);
+
+    const second = handlers.downloadAndNotify(
+      1234,
+      { message_id: 2, date: 1_000, video: { file_name: "second.mp4" } } as never,
       1234,
       async () => ({ message_id: 99 }),
       99,
     );
 
-    await Promise.resolve();
-    assert.deepEqual(terminals, ["Queued: clip.mp4 (1 active)"]);
+    await waitFor(() => terminals.includes("Queued: second.mp4"));
+    assert.deepEqual(terminals, ["Queued: second.mp4"]);
 
-    semaphore.release();
-    await downloadStarted;
-    await runPromise;
+    resolveDownload();
+    await Promise.all([first, second]);
   });
 });
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const startedAt = Date.now();
+
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Timed out waiting for condition.");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 test("DeleteHandlers ask shows confirmation markup", async () => {
   await withTempDir(async (tempDir) => {

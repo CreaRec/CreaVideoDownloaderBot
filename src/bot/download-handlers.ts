@@ -16,7 +16,6 @@ import {
   type TelegramDownloader,
 } from "../download/downloader.js";
 import type { ActiveDownloads } from "../download/active-downloads.js";
-import type { DownloadSemaphore } from "../download/download-semaphore.js";
 import type { Logger } from "../config/logger.js";
 import { createProgressReporter } from "../download/progress-reporter.js";
 import type { Settings } from "../config/settings.js";
@@ -46,7 +45,6 @@ export class DownloadHandlers {
     private readonly deleteButtons: DeleteButtonState,
     private readonly activeDownloads: ActiveDownloads,
     private readonly statusScheduler: StatusEditScheduler,
-    private readonly downloadSemaphore: DownloadSemaphore,
     private readonly progressMinIntervalMs: number,
     private readonly progressPercentStep: number,
   ) {}
@@ -64,35 +62,7 @@ export class DownloadHandlers {
 
     const fileName = getDisplayFileName(message);
     const statusMessage = await safeReply(reply, this.logger, `Download started: ${fileName}`);
-    void this.runDownloadWithConcurrency(fromUserId, message, chatId, reply, statusMessage?.message_id);
-  }
-
-  async runDownloadWithConcurrency(
-    fromUserId: number,
-    message: DownloadableMessage,
-    chatId: number,
-    reply: ReplyFn,
-    statusMessageId: number | undefined,
-  ): Promise<void> {
-    const fileName = getDisplayFileName(message);
-
-    if (statusMessageId !== undefined && this.downloadSemaphore.active >= this.settings.download.maxConcurrent) {
-      await this.statusScheduler.scheduleTerminal(
-        chatId,
-        statusMessageId,
-        `Queued: ${fileName} (${this.downloadSemaphore.active} active)`,
-        undefined,
-        reply,
-      );
-    }
-
-    await this.downloadSemaphore.acquire();
-
-    try {
-      await this.downloadAndNotify(fromUserId, message, chatId, reply, statusMessageId);
-    } finally {
-      this.downloadSemaphore.release();
-    }
+    void this.downloadAndNotify(fromUserId, message, chatId, reply, statusMessage?.message_id);
   }
 
   async downloadAndNotify(
@@ -189,6 +159,16 @@ export class DownloadHandlers {
             return;
           }
         }
+      }
+
+      if (statusMessageId !== undefined && this.downloader.isMediaDownloadBusy(fromUserId)) {
+        await this.statusScheduler.scheduleTerminal(
+          chatId,
+          statusMessageId,
+          `Queued: ${fileName}`,
+          undefined,
+          reply,
+        );
       }
 
       const result = await this.downloader.downloadPrepared(prepared, request, choice);

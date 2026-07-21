@@ -35,7 +35,6 @@ test("loadSettings reads valid settings, applies defaults, and resolves paths", 
 
     assert.equal(settings.download.directory, path.resolve("downloads"));
     assert.equal(settings.download.overwriteExisting, false);
-    assert.equal(settings.download.maxConcurrent, 3);
     assert.equal(settings.openai.apiKey, "");
     assert.equal(settings.openai.adminApiKey, "");
     assert.equal(settings.openai.model, "gpt-4o-mini");

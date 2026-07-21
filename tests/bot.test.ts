@@ -7,7 +7,6 @@ import type { MetadataFixHandlers } from "../src/bot/metadata-fix-handlers.js";
 import { createDeleteButtonReplyMarkup, parseDeleteCallbackData, type DeleteButtonReplyMarkup } from "../src/files/delete-buttons.js";
 import { DownloadCanceledError, type DownloadRequest } from "../src/download/downloader.js";
 import type { FileTreeBrowser } from "../src/files/file-tree.js";
-import { DownloadSemaphore } from "../src/download/download-semaphore.js";
 import { createProgressReporter, formatBytes } from "../src/download/progress-reporter.js";
 import { StatusEditScheduler } from "../src/download/status-edit-scheduler.js";
 import { getCaption, getDisplayFileName, getSuggestedFileName } from "../src/telegram/telegram-message.js";
@@ -280,6 +279,9 @@ test("confirming delete aborts the active download and suppresses failed status"
     });
     let capturedTelegramUserId: number | undefined;
     const fakeDownloader = {
+      isMediaDownloadBusy() {
+        return false;
+      },
       async prepareDownload() {
         return {
           message: { id: 1 },
@@ -399,41 +401,6 @@ test("confirming delete aborts the active download and suppresses failed status"
     assert.equal(edits.some((edit) => edit.message.includes("Failed to download")), false);
     assert.equal(logger.entries.some((entry) => entry.level === "error"), false);
   });
-});
-
-test("download semaphore limits active acquisitions to maxConcurrent", async () => {
-  const semaphore = new DownloadSemaphore(3);
-  const releaseCallbacks: Array<() => void> = [];
-  let active = 0;
-  let maxActive = 0;
-
-  const tasks = Array.from({ length: 4 }, async () => {
-    await semaphore.acquire();
-
-    try {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await new Promise<void>((resolve) => {
-        releaseCallbacks.push(() => {
-          active -= 1;
-          resolve();
-        });
-      });
-    } finally {
-      semaphore.release();
-    }
-  });
-
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(maxActive, 3);
-
-  while (releaseCallbacks.length > 0) {
-    releaseCallbacks.shift()?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-
-  await Promise.all(tasks);
-  assert.equal(active, 0);
 });
 
 test("main reply keyboard exposes a Files button", () => {
