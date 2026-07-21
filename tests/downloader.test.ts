@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -256,6 +256,154 @@ test("downloadFromBotMessage routes downloads through the sender user session", 
 
     assert.equal(otherClient.downloadedMessage?.id, 41);
     assert.equal(ownerClient.downloadedMessage, undefined);
+  });
+});
+
+test("downloadPrepared serializes concurrent GramJS media downloads for the same user", async () => {
+  await withTempDir(async (dir) => {
+    let activeDownloads = 0;
+    let maxActiveDownloads = 0;
+    let firstDownloadStarted = false;
+    let resolveFirstDownload!: () => void;
+    const firstDownloadGate = new Promise<void>((resolve) => {
+      resolveFirstDownload = resolve;
+    });
+
+    const fakeClient = createFakeClient({
+      messages: [
+        { id: 50, media: media("MessageMediaDocument") },
+        { id: 51, media: media("MessageMediaDocument") },
+      ],
+    });
+    const originalDownloadMedia = fakeClient.downloadMedia.bind(fakeClient);
+
+    fakeClient.downloadMedia = async (message, downloadOptions) => {
+      activeDownloads += 1;
+      maxActiveDownloads = Math.max(maxActiveDownloads, activeDownloads);
+
+      try {
+        if (!firstDownloadStarted) {
+          firstDownloadStarted = true;
+          await firstDownloadGate;
+        }
+
+        await originalDownloadMedia(message, downloadOptions);
+        await writeFile(downloadOptions.outputFile, `content-${message.id}`, "utf8");
+      } finally {
+        activeDownloads -= 1;
+      }
+    };
+
+    const downloader = createStartedDownloader({
+      downloadDirectory: dir,
+      metadata: { kind: "undefined", reason: "unknown" },
+      client: fakeClient,
+    });
+
+    const first = downloader.downloadFromBotMessage({
+      botMessageId: 50,
+      telegramUserId: 1234,
+      mediaKind: "document",
+      suggestedFileName: "first.bin",
+    });
+    const second = downloader.downloadFromBotMessage({
+      botMessageId: 51,
+      telegramUserId: 1234,
+      mediaKind: "document",
+      suggestedFileName: "second.bin",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(activeDownloads, 1);
+    resolveFirstDownload();
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    assert.equal(maxActiveDownloads, 1);
+    assert.equal(await readFile(firstResult.outputPath, "utf8"), "content-50");
+    assert.equal(await readFile(secondResult.outputPath, "utf8"), "content-51");
+  });
+});
+
+test("downloadPrepared allows concurrent GramJS media downloads for different users", async () => {
+  await withTempDir(async (dir) => {
+    let activeDownloads = 0;
+    let maxActiveDownloads = 0;
+    let resolveBothReady!: () => void;
+    const bothReady = new Promise<void>((resolve) => {
+      resolveBothReady = resolve;
+    });
+    let startedCount = 0;
+
+    const createBlockingClient = (messageId: number): FakeClient => {
+      const client = createFakeClient({
+        messages: [{ id: messageId, media: media("MessageMediaDocument") }],
+      });
+      const originalDownloadMedia = client.downloadMedia.bind(client);
+
+      client.downloadMedia = async (message, downloadOptions) => {
+        activeDownloads += 1;
+        maxActiveDownloads = Math.max(maxActiveDownloads, activeDownloads);
+        startedCount += 1;
+
+        if (startedCount === 2) {
+          resolveBothReady();
+        }
+
+        await bothReady;
+
+        try {
+          await originalDownloadMedia(message, downloadOptions);
+          await writeFile(downloadOptions.outputFile, `content-${message.id}`, "utf8");
+        } finally {
+          activeDownloads -= 1;
+        }
+      };
+
+      return client;
+    };
+
+    const ownerClient = createBlockingClient(60);
+    const otherClient = createBlockingClient(61);
+    const downloader = new TelegramDownloader(
+      createSettings({
+        download: { directory: dir },
+        telegram: {
+          userSessions: {
+            "1234": "owner-session",
+            "5678": "other-session",
+          },
+        },
+      }),
+      createLoggerSpy(),
+      createMetadataService({ kind: "undefined", reason: "unknown" }) as never,
+    );
+
+    Object.assign(downloader as unknown as { userClients: Map<number, { client: FakeClient; botEntity: unknown }> }, {
+      userClients: new Map([
+        [1234, { client: ownerClient, botEntity: { id: "bot-owner" } }],
+        [5678, { client: otherClient, botEntity: { id: "bot-other" } }],
+      ]),
+    });
+
+    const results = await Promise.all([
+      downloader.downloadFromBotMessage({
+        botMessageId: 60,
+        telegramUserId: 1234,
+        mediaKind: "document",
+        suggestedFileName: "owner.bin",
+      }),
+      downloader.downloadFromBotMessage({
+        botMessageId: 61,
+        telegramUserId: 5678,
+        mediaKind: "document",
+        suggestedFileName: "other.bin",
+      }),
+    ]);
+
+    assert.equal(maxActiveDownloads, 2);
+    assert.equal(await readFile(results[0].outputPath, "utf8"), "content-60");
+    assert.equal(await readFile(results[1].outputPath, "utf8"), "content-61");
   });
 });
 
@@ -525,7 +673,13 @@ function createMetadataService(metadata: PlexMetadata, useRealBuildOutputPath = 
 function createFakeClient(options: { messages?: FakeMessage[]; iterMessages?: FakeMessage[] } = {}): FakeClient {
   const client: FakeClient = {
     downloadedMessage: undefined,
-    async getMessages() {
+    async getMessages(_entity?: unknown, params?: { ids?: number | number[] }) {
+      const requestedId = Array.isArray(params?.ids) ? params?.ids[0] : params?.ids;
+
+      if (requestedId !== undefined && options.messages) {
+        return options.messages.find((message) => message.id === requestedId) ?? options.messages[0];
+      }
+
       return options.messages?.[0];
     },
     async *iterMessages() {
@@ -555,7 +709,10 @@ function media(className: string): { className: string } {
 
 interface FakeClient {
   downloadedMessage?: FakeMessage;
-  getMessages: () => Promise<FakeMessage | FakeMessage[] | undefined>;
+  getMessages: (
+    entity?: unknown,
+    params?: { ids?: number | number[] },
+  ) => Promise<FakeMessage | FakeMessage[] | undefined>;
   iterMessages: () => AsyncGenerator<FakeMessage>;
   downloadMedia: (
     message: FakeMessage,

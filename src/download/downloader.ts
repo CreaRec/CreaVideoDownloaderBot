@@ -63,6 +63,8 @@ interface UserDownloadClient {
 
 export class TelegramDownloader {
   private readonly userClients = new Map<number, UserDownloadClient>();
+  /** GramJS is not safe for concurrent downloadMedia on one client; serialize per user. */
+  private readonly mediaDownloadTails = new Map<number, Promise<unknown>>();
 
   constructor(
     private readonly settings: Settings,
@@ -103,6 +105,7 @@ export class TelegramDownloader {
       }),
     );
     this.userClients.clear();
+    this.mediaDownloadTails.clear();
     this.logger.info("GramJS clients disconnected.");
   }
 
@@ -153,14 +156,18 @@ export class TelegramDownloader {
     await request.onOutputPath?.(outputPath);
     throwIfDownloadCanceled(request.signal);
 
-    await userClient.client.downloadMedia(prepared.message as never, {
-      outputFile: outputPath,
-      progressCallback: (downloaded: unknown, total: unknown) => {
-        throwIfDownloadCanceled(request.signal);
-        request.onProgress?.(toDownloadProgress(downloaded, total));
-        throwIfDownloadCanceled(request.signal);
-      },
-    } as never);
+    await this.withExclusiveMediaDownload(request.telegramUserId, async () => {
+      throwIfDownloadCanceled(request.signal);
+
+      await userClient.client.downloadMedia(prepared.message as never, {
+        outputFile: outputPath,
+        progressCallback: (downloaded: unknown, total: unknown) => {
+          throwIfDownloadCanceled(request.signal);
+          request.onProgress?.(toDownloadProgress(downloaded, total));
+          throwIfDownloadCanceled(request.signal);
+        },
+      } as never);
+    });
 
     throwIfDownloadCanceled(request.signal);
 
@@ -170,6 +177,27 @@ export class TelegramDownloader {
       outputPath,
       bytes: fileStat.size,
     };
+  }
+
+  private async withExclusiveMediaDownload<T>(telegramUserId: number, task: () => Promise<T>): Promise<T> {
+    const previous = this.mediaDownloadTails.get(telegramUserId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    this.mediaDownloadTails.set(
+      telegramUserId,
+      previous.catch(() => undefined).then(() => gate),
+    );
+
+    await previous.catch(() => undefined);
+
+    try {
+      return await task();
+    } finally {
+      release();
+    }
   }
 
   async downloadFromBotMessage(request: DownloadRequest): Promise<DownloadResult> {
