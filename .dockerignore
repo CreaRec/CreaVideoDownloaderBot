@@ -13,5 +13,6 @@ data
 tests
 docs
 scripts
+archived_migrations
 deploy
 README.md

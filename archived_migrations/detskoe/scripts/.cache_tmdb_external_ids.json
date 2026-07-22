@@ -1,0 +1,961 @@
+{
+  "film:10191": {
+    "imdb": "tt0892769",
+    "tvdb": null,
+    "tmdb": 10191,
+    "api_title": "Как приручить дракона",
+    "api_year": 2010
+  },
+  "film:10192": {
+    "imdb": "tt0892791",
+    "tvdb": null,
+    "tmdb": 10192,
+    "api_title": "Шрэк навсегда",
+    "api_year": 2010
+  },
+  "film:10198": {
+    "imdb": "tt0780521",
+    "tvdb": null,
+    "tmdb": 10198,
+    "api_title": "Принцесса и лягушка",
+    "api_year": 2009
+  },
+  "film:1022796": {
+    "imdb": "tt11304740",
+    "tvdb": null,
+    "tmdb": 1022796,
+    "api_title": "Заветное желание",
+    "api_year": 2023
+  },
+  "film:102651": {
+    "imdb": "tt1587310",
+    "tvdb": null,
+    "tmdb": 102651,
+    "api_title": "Малефисента",
+    "api_year": 2014
+  },
+  "film:10340": {
+    "imdb": "tt0048280",
+    "tvdb": null,
+    "tmdb": 10340,
+    "api_title": "Леди и Бродяга",
+    "api_year": 1955
+  },
+  "film:10386": {
+    "imdb": "tt0129167",
+    "tvdb": null,
+    "tmdb": 10386,
+    "api_title": "Стальной гигант",
+    "api_year": 1999
+  },
+  "film:10527": {
+    "imdb": "tt0479952",
+    "tvdb": null,
+    "tmdb": 10527,
+    "api_title": "Мадагаскар 2",
+    "api_year": 2008
+  },
+  "film:10530": {
+    "imdb": "tt0114148",
+    "tvdb": null,
+    "tmdb": 10530,
+    "api_title": "Покахонтас",
+    "api_year": 1995
+  },
+  "film:10681": {
+    "imdb": "tt0910970",
+    "tvdb": null,
+    "tmdb": 10681,
+    "api_title": "ВАЛЛ·И",
+    "api_year": 2008
+  },
+  "film:10693": {
+    "imdb": "tt0046183",
+    "tvdb": null,
+    "tmdb": 10693,
+    "api_title": "Питер Пэн",
+    "api_year": 1953
+  },
+  "film:10882": {
+    "imdb": "tt0053285",
+    "tvdb": null,
+    "tmdb": 10882,
+    "api_title": "Спящая красавица",
+    "api_year": 1959
+  },
+  "film:109445": {
+    "imdb": "tt2294629",
+    "tvdb": null,
+    "tmdb": 109445,
+    "api_title": "Холодное сердце",
+    "api_year": 2013
+  },
+  "film:1108427": {
+    "imdb": "tt27419466",
+    "tvdb": null,
+    "tmdb": 1108427,
+    "api_title": "Моана",
+    "api_year": 2026
+  },
+  "film:11360": {
+    "imdb": "tt0033563",
+    "tvdb": null,
+    "tmdb": 11360,
+    "api_title": "Дамбо",
+    "api_year": 1941
+  },
+  "film:1139829": {
+    "imdb": "tt28066777",
+    "tvdb": null,
+    "tmdb": 1139829,
+    "api_title": "Орион и Тьма",
+    "api_year": 2024
+  },
+  "film:1147400": {
+    "imdb": "tt29259099",
+    "tvdb": null,
+    "tmdb": 1147400,
+    "api_title": "Леди Баг и Супер-Кот: Париж",
+    "api_year": 2024
+  },
+  "film:1147416": {
+    "imdb": "tt13701202",
+    "tvdb": null,
+    "tmdb": 1147416,
+    "api_title": "Леди Баг и Супер-Кот: Лондон. На краю времени",
+    "api_year": 2024
+  },
+  "film:11544": {
+    "imdb": "tt0275847",
+    "tvdb": null,
+    "tmdb": 11544,
+    "api_title": "Лило и Стич",
+    "api_year": 2002
+  },
+  "film:11674": {
+    "imdb": "tt0115433",
+    "tvdb": null,
+    "tmdb": 11674,
+    "api_title": "101 далматинец",
+    "api_year": 1996
+  },
+  "film:11886": {
+    "imdb": "tt0070608",
+    "tvdb": null,
+    "tmdb": 11886,
+    "api_title": "Робин Гуд",
+    "api_year": 1973
+  },
+  "film:12": {
+    "imdb": "tt0266543",
+    "tvdb": null,
+    "tmdb": 12,
+    "api_title": "В поисках Немо",
+    "api_year": 2003
+  },
+  "film:1228255": {
+    "imdb": "tt24518114",
+    "tvdb": null,
+    "tmdb": 1228255,
+    "api_title": "Снежная королева",
+    "api_year": 2004
+  },
+  "film:1241982": {
+    "imdb": "tt13622970",
+    "tvdb": null,
+    "tmdb": 1241982,
+    "api_title": "Моана 2",
+    "api_year": 2024
+  },
+  "film:12536": {
+    "imdb": "tt0329200",
+    "tvdb": null,
+    "tmdb": 12536,
+    "api_title": "Один дома 4",
+    "api_year": 2002
+  },
+  "film:136799": {
+    "imdb": "tt1679335",
+    "tvdb": null,
+    "tmdb": 136799,
+    "api_title": "Тролли",
+    "api_year": 2016
+  },
+  "film:14160": {
+    "imdb": "tt1049413",
+    "tvdb": null,
+    "tmdb": 14160,
+    "api_title": "Вверх",
+    "api_year": 2009
+  },
+  "film:1417539": {
+    "imdb": "tt33349068",
+    "tvdb": null,
+    "tmdb": 1417539,
+    "api_title": "Алиса в Стране Чудес",
+    "api_year": 2025
+  },
+  "film:150689": {
+    "imdb": "tt1661199",
+    "tvdb": null,
+    "tmdb": 150689,
+    "api_title": "Золушка",
+    "api_year": 2015
+  },
+  "film:159824": {
+    "imdb": "tt2510894",
+    "tvdb": null,
+    "tmdb": 159824,
+    "api_title": "Монстры на каникулах 2",
+    "api_year": 2015
+  },
+  "film:160425": {
+    "imdb": "tt3454556",
+    "tvdb": null,
+    "tmdb": 160425,
+    "api_title": "Кот в сапогах",
+    "api_year": 1968
+  },
+  "film:177572": {
+    "imdb": "tt2245084",
+    "tvdb": null,
+    "tmdb": 177572,
+    "api_title": "Город героев",
+    "api_year": 2014
+  },
+  "film:20760": {
+    "imdb": "tt0457993",
+    "tvdb": null,
+    "tmdb": 20760,
+    "api_title": "Лило и Стич 2: Большая Проблема Стича",
+    "api_year": 2005
+  },
+  "film:21032": {
+    "imdb": "tt0112453",
+    "tvdb": null,
+    "tmdb": 21032,
+    "api_title": "Балто",
+    "api_year": 1995
+  },
+  "film:21385": {
+    "imdb": "tt0371823",
+    "tvdb": null,
+    "tmdb": 21385,
+    "api_title": "Микки, Дональд, Гуфи: Три мушкетера",
+    "api_year": 2004
+  },
+  "film:25913": {
+    "imdb": "tt0281634",
+    "tvdb": null,
+    "tmdb": 25913,
+    "api_title": "Балто 2: В поисках волка",
+    "api_year": 2002
+  },
+  "film:260514": {
+    "imdb": "tt3606752",
+    "tvdb": null,
+    "tmdb": 260514,
+    "api_title": "Тачки 3",
+    "api_year": 2017
+  },
+  "film:269149": {
+    "imdb": "tt2948356",
+    "tvdb": null,
+    "tmdb": 269149,
+    "api_title": "Зверополис",
+    "api_year": 2016
+  },
+  "film:270946": {
+    "imdb": "tt1911658",
+    "tvdb": null,
+    "tmdb": 270946,
+    "api_title": "Пингвины Мадагаскара",
+    "api_year": 2014
+  },
+  "film:291990": {
+    "imdb": "tt0073627",
+    "tvdb": null,
+    "tmdb": 291990,
+    "api_title": "Рикки-Тикки-Тави",
+    "api_year": 1976
+  },
+  "film:301528": {
+    "imdb": "tt1979376",
+    "tvdb": null,
+    "tmdb": 301528,
+    "api_title": "История игрушек 4",
+    "api_year": 2019
+  },
+  "film:315162": {
+    "imdb": "tt3915174",
+    "tvdb": null,
+    "tmdb": 315162,
+    "api_title": "Кот в сапогах 2: Последнее желание",
+    "api_year": 2022
+  },
+  "film:321612": {
+    "imdb": "tt2771200",
+    "tvdb": null,
+    "tmdb": 321612,
+    "api_title": "Красавица и чудовище",
+    "api_year": 2017
+  },
+  "film:328111": {
+    "imdb": "tt2709768",
+    "tvdb": null,
+    "tmdb": 328111,
+    "api_title": "Тайная жизнь домашних животных 1",
+    "api_year": 2016
+  },
+  "film:330457": {
+    "imdb": "tt4520988",
+    "tvdb": null,
+    "tmdb": 330457,
+    "api_title": "Холодное сердце 2",
+    "api_year": 2019
+  },
+  "film:335797": {
+    "imdb": "tt3470600",
+    "tvdb": null,
+    "tmdb": 335797,
+    "api_title": "Зверопой",
+    "api_year": 2016
+  },
+  "film:34942": {
+    "imdb": "tt0423849",
+    "tvdb": null,
+    "tmdb": 34942,
+    "api_title": "Балто 3: Крылья перемен",
+    "api_year": 2004
+  },
+  "film:364689": {
+    "imdb": "tt3411444",
+    "tvdb": null,
+    "tmdb": 364689,
+    "api_title": "Фердинанд",
+    "api_year": 2017
+  },
+  "film:38579": {
+    "imdb": "tt1392197",
+    "tvdb": null,
+    "tmdb": 38579,
+    "api_title": "Мармадюк",
+    "api_year": 2010
+  },
+  "film:38757": {
+    "imdb": "tt0398286",
+    "tvdb": null,
+    "tmdb": 38757,
+    "api_title": "Рапунцель: Запутанная история",
+    "api_year": 2010
+  },
+  "film:400155": {
+    "imdb": "tt5220122",
+    "tvdb": null,
+    "tmdb": 400155,
+    "api_title": "Монстры на каникулах 3: Море зовёт",
+    "api_year": 2018
+  },
+  "film:408": {
+    "imdb": "tt0029583",
+    "tvdb": null,
+    "tmdb": 408,
+    "api_title": "Белоснежка и Семь Гномов",
+    "api_year": 1938
+  },
+  "film:412117": {
+    "imdb": "tt5113040",
+    "tvdb": null,
+    "tmdb": 412117,
+    "api_title": "Тайная жизнь домашних животных 2",
+    "api_year": 2019
+  },
+  "film:419946": {
+    "imdb": "tt2487736",
+    "tvdb": null,
+    "tmdb": 419946,
+    "api_title": "Цветик-семицветик",
+    "api_year": 1948
+  },
+  "film:420809": {
+    "imdb": "tt4777008",
+    "tvdb": null,
+    "tmdb": 420809,
+    "api_title": "Малефисента: Владычица тьмы",
+    "api_year": 2019
+  },
+  "film:420817": {
+    "imdb": "tt6139732",
+    "tvdb": null,
+    "tmdb": 420817,
+    "api_title": "Аладдин",
+    "api_year": 2019
+  },
+  "film:425": {
+    "imdb": "tt0268380",
+    "tvdb": null,
+    "tmdb": 425,
+    "api_title": "Ледниковый период",
+    "api_year": 2002
+  },
+  "film:438747": {
+    "imdb": "tt5533228",
+    "tvdb": null,
+    "tmdb": 438747,
+    "api_title": "Рапунцель: Дорога к мечте",
+    "api_year": 2017
+  },
+  "film:447277": {
+    "imdb": "tt5971474",
+    "tvdb": null,
+    "tmdb": 447277,
+    "api_title": "Русалочка",
+    "api_year": 2023
+  },
+  "film:467644": {
+    "imdb": null,
+    "tvdb": null,
+    "tmdb": 467644,
+    "api_title": "Маша и медведь. День кино",
+    "api_year": 2016
+  },
+  "film:483165": {
+    "imdb": "tt6106526",
+    "tvdb": null,
+    "tmdb": 483165,
+    "api_title": "Фиксики: Большой секрет",
+    "api_year": 2017
+  },
+  "film:496450": {
+    "imdb": "tt10364034",
+    "tvdb": null,
+    "tmdb": 496450,
+    "api_title": "Леди Баг и Супер-Кот: Пробуждение силы",
+    "api_year": 2023
+  },
+  "film:508943": {
+    "imdb": "tt12801262",
+    "tvdb": null,
+    "tmdb": 508943,
+    "api_title": "Лука",
+    "api_year": 2021
+  },
+  "film:508947": {
+    "imdb": "tt8097030",
+    "tvdb": null,
+    "tmdb": 508947,
+    "api_title": "Я Краснею",
+    "api_year": 2022
+  },
+  "film:51349": {
+    "imdb": "tt0378262",
+    "tvdb": null,
+    "tmdb": 51349,
+    "api_title": "Карлик Нос",
+    "api_year": 2003
+  },
+  "film:527774": {
+    "imdb": "tt5109280",
+    "tvdb": null,
+    "tmdb": 527774,
+    "api_title": "Райя и последний дракон",
+    "api_year": 2021
+  },
+  "film:550205": {
+    "imdb": "tt5562070",
+    "tvdb": null,
+    "tmdb": 550205,
+    "api_title": "Волшебный дракон",
+    "api_year": 2021
+  },
+  "film:552095": {
+    "imdb": "tt6889128",
+    "tvdb": null,
+    "tmdb": 552095,
+    "api_title": "Щенячий патруль: Мегащенки",
+    "api_year": 2018
+  },
+  "film:568124": {
+    "imdb": "tt2953050",
+    "tvdb": null,
+    "tmdb": 568124,
+    "api_title": "Энканто",
+    "api_year": 2021
+  },
+  "film:57800": {
+    "imdb": "tt1667889",
+    "tvdb": null,
+    "tmdb": 57800,
+    "api_title": "Ледниковый период 4: Континентальный дрейф",
+    "api_year": 2012
+  },
+  "film:579893": {
+    "imdb": "tt11498676",
+    "tvdb": null,
+    "tmdb": 579893,
+    "api_title": "Фиксики против Кработов",
+    "api_year": 2019
+  },
+  "film:585": {
+    "imdb": "tt0198781",
+    "tvdb": null,
+    "tmdb": 585,
+    "api_title": "Корпорация монстров",
+    "api_year": 2001
+  },
+  "film:587807": {
+    "imdb": "tt1361336",
+    "tvdb": null,
+    "tmdb": 587807,
+    "api_title": "Том и Джерри",
+    "api_year": 2021
+  },
+  "film:588648": {
+    "imdb": "tt7093904",
+    "tvdb": null,
+    "tmdb": 588648,
+    "api_title": "Последний дракон",
+    "api_year": 2024
+  },
+  "film:62177": {
+    "imdb": "tt1217209",
+    "tvdb": null,
+    "tmdb": 62177,
+    "api_title": "Храбрая сердцем",
+    "api_year": 2012
+  },
+  "film:62211": {
+    "imdb": "tt1453405",
+    "tvdb": null,
+    "tmdb": 62211,
+    "api_title": "Университет монстров",
+    "api_year": 2013
+  },
+  "film:629542": {
+    "imdb": "tt8115900",
+    "tvdb": null,
+    "tmdb": 629542,
+    "api_title": "Плохие парни",
+    "api_year": 2022
+  },
+  "film:6439": {
+    "imdb": "tt0376105",
+    "tvdb": null,
+    "tmdb": 6439,
+    "api_title": "Бешеные скачки",
+    "api_year": 2005
+  },
+  "film:654974": {
+    "imdb": "tt11012066",
+    "tvdb": null,
+    "tmdb": 654974,
+    "api_title": "Один дома",
+    "api_year": 2021
+  },
+  "film:72202": {
+    "imdb": "tt1070792",
+    "tvdb": null,
+    "tmdb": 72202,
+    "api_title": "Гуси-лебеди",
+    "api_year": 1949
+  },
+  "film:726684": {
+    "imdb": "tt12816634",
+    "tvdb": null,
+    "tmdb": 726684,
+    "api_title": "Леди Баг и Супер-Кот: Шанхай. Легенда о Леди Драконе",
+    "api_year": 2021
+  },
+  "film:743439": {
+    "imdb": "tt13107908",
+    "tvdb": null,
+    "tmdb": 743439,
+    "api_title": "Щенячий патруль: Улётная помощь",
+    "api_year": 2020
+  },
+  "film:751171": {
+    "imdb": "tt16550628",
+    "tvdb": null,
+    "tmdb": 751171,
+    "api_title": "Чебурашка",
+    "api_year": 2023
+  },
+  "film:76492": {
+    "imdb": "tt0837562",
+    "tvdb": null,
+    "tmdb": 76492,
+    "api_title": "Монстры на каникулах",
+    "api_year": 2012
+  },
+  "film:772": {
+    "imdb": "tt0104431",
+    "tvdb": null,
+    "tmdb": 772,
+    "api_title": "Один дома 2: Затерянный в Нью-Йорке",
+    "api_year": 1992
+  },
+  "film:77294": {
+    "imdb": "tt0189160",
+    "tvdb": null,
+    "tmdb": 77294,
+    "api_title": "Трое из Простоквашино",
+    "api_year": 1978
+  },
+  "film:77759": {
+    "imdb": "tt1315584",
+    "tvdb": null,
+    "tmdb": 77759,
+    "api_title": "Каникулы в Простоквашино",
+    "api_year": 1980
+  },
+  "film:77762": {
+    "imdb": "tt1318414",
+    "tvdb": null,
+    "tmdb": 77762,
+    "api_title": "Зима в Простоквашино",
+    "api_year": 1984
+  },
+  "film:79703": {
+    "imdb": "tt0487562",
+    "tvdb": null,
+    "tmdb": 79703,
+    "api_title": "Чебурашка идет в школу",
+    "api_year": 1983
+  },
+  "film:80321": {
+    "imdb": "tt1277953",
+    "tvdb": null,
+    "tmdb": 80321,
+    "api_title": "Мадагаскар 3",
+    "api_year": 2012
+  },
+  "film:808": {
+    "imdb": "tt0126029",
+    "tvdb": null,
+    "tmdb": 808,
+    "api_title": "Шрэк",
+    "api_year": 2001
+  },
+  "film:809": {
+    "imdb": "tt0298148",
+    "tvdb": null,
+    "tmdb": 809,
+    "api_title": "Шрэк 2",
+    "api_year": 2004
+  },
+  "film:810": {
+    "imdb": "tt0413267",
+    "tvdb": null,
+    "tmdb": 810,
+    "api_title": "Шрэк Третий",
+    "api_year": 2007
+  },
+  "film:81188": {
+    "imdb": "tt1446192",
+    "tvdb": null,
+    "tmdb": 81188,
+    "api_title": "Хранители Снов",
+    "api_year": 2012
+  },
+  "film:82702": {
+    "imdb": "tt1646971",
+    "tvdb": null,
+    "tmdb": 82702,
+    "api_title": "Как приручить дракона 2",
+    "api_year": 2014
+  },
+  "film:8355": {
+    "imdb": "tt1080016",
+    "tvdb": null,
+    "tmdb": 8355,
+    "api_title": "Ледниковый период 3: Эра динозавров",
+    "api_year": 2009
+  },
+  "film:854": {
+    "imdb": "tt0110475",
+    "tvdb": null,
+    "tmdb": 854,
+    "api_title": "Маска",
+    "api_year": 1994
+  },
+  "film:8587": {
+    "imdb": "tt0110357",
+    "tvdb": null,
+    "tmdb": 8587,
+    "api_title": "Король Лев",
+    "api_year": 1994
+  },
+  "film:893723": {
+    "imdb": "tt15837338",
+    "tvdb": null,
+    "tmdb": 893723,
+    "api_title": "Щенячий патруль: Мегафильм",
+    "api_year": 2023
+  },
+  "film:9016": {
+    "imdb": "tt0133240",
+    "tvdb": null,
+    "tmdb": 9016,
+    "api_title": "Планета сокровищ",
+    "api_year": 2002
+  },
+  "film:9023": {
+    "imdb": "tt0166813",
+    "tvdb": null,
+    "tmdb": 9023,
+    "api_title": "Спирит: Душа прерий",
+    "api_year": 2002
+  },
+  "film:9078": {
+    "imdb": "tt0057546",
+    "tvdb": null,
+    "tmdb": 9078,
+    "api_title": "Меч в камне",
+    "api_year": 1963
+  },
+  "film:91142": {
+    "imdb": "tt2474800",
+    "tvdb": null,
+    "tmdb": 91142,
+    "api_title": "Чиполлино",
+    "api_year": 1961
+  },
+  "film:920": {
+    "imdb": "tt0317219",
+    "tvdb": null,
+    "tmdb": 920,
+    "api_title": "Тачки",
+    "api_year": 2006
+  },
+  "film:9444": {
+    "imdb": "tt0118617",
+    "tvdb": null,
+    "tmdb": 9444,
+    "api_title": "Анастасия",
+    "api_year": 1997
+  },
+  "film:950": {
+    "imdb": "tt0438097",
+    "tvdb": null,
+    "tmdb": 950,
+    "api_title": "Ледниковый период 2: Глобальное потепление",
+    "api_year": 2006
+  },
+  "film:9502": {
+    "imdb": "tt0441773",
+    "tvdb": null,
+    "tmdb": 9502,
+    "api_title": "Кунг-фу Панда",
+    "api_year": 2008
+  },
+  "film:953": {
+    "imdb": "tt0351283",
+    "tvdb": null,
+    "tmdb": 953,
+    "api_title": "Мадагаскар",
+    "api_year": 2005
+  },
+  "film:966226": {
+    "imdb": null,
+    "tvdb": null,
+    "tmdb": 966226,
+    "api_title": "ФиксиКИНО. Вселенная приключений",
+    "api_year": 2022
+  },
+  "film:9714": {
+    "imdb": "tt0119303",
+    "tvdb": null,
+    "tmdb": 9714,
+    "api_title": "Один дома 3",
+    "api_year": 1997
+  },
+  "tv_show:135531": {
+    "imdb": "tt9308216",
+    "tvdb": null,
+    "tmdb": 135531,
+    "api_title": "Леди Баг и Супер-Кот чиби",
+    "api_year": 2018
+  },
+  "tv_show:1615": {
+    "imdb": "tt0096557",
+    "tvdb": 75477,
+    "tmdb": 1615,
+    "api_title": "Чип и Дейл спешат на помощь",
+    "api_year": 1989
+  },
+  "tv_show:221504": {
+    "imdb": "tt27423738",
+    "tvdb": 431911,
+    "tmdb": 221504,
+    "api_title": "Академия единорогов",
+    "api_year": 2023
+  },
+  "tv_show:306769": {
+    "imdb": null,
+    "tvdb": null,
+    "tmdb": 306769,
+    "api_title": "PAW Patrol: Air Rescue",
+    "api_year": 2025
+  },
+  "tv_show:4274": {
+    "imdb": "tt0198254",
+    "tvdb": 77973,
+    "tmdb": 4274,
+    "api_title": "Том и Джерри в детстве",
+    "api_year": 1990
+  },
+  "tv_show:46080": {
+    "imdb": "tt1884856",
+    "tvdb": 136401,
+    "tmdb": 46080,
+    "api_title": "Маша и Медведь",
+    "api_year": 2009
+  },
+  "tv_show:46105": {
+    "imdb": "tt3886188",
+    "tvdb": 244021,
+    "tmdb": 46105,
+    "api_title": "Фиксики",
+    "api_year": 2011
+  },
+  "tv_show:47480": {
+    "imdb": "tt3559124",
+    "tvdb": 280446,
+    "tmdb": 47480,
+    "api_title": "Шоу Тома и Джерри",
+    "api_year": 2014
+  },
+  "tv_show:57532": {
+    "imdb": "tt3121722",
+    "tvdb": 272472,
+    "tmdb": 57532,
+    "api_title": "Щенячий патруль",
+    "api_year": 2013
+  },
+  "tv_show:6138": {
+    "imdb": "tt0234355",
+    "tvdb": 83576,
+    "tmdb": 6138,
+    "api_title": "Ну, погоди!",
+    "api_year": 1969
+  },
+  "tv_show:65334": {
+    "imdb": "tt2580046",
+    "tvdb": 302218,
+    "tmdb": 65334,
+    "api_title": "Леди Баг и Супер-кот",
+    "api_year": 2015
+  },
+  "tv_show:6589": {
+    "imdb": "tt0853174",
+    "tvdb": 265448,
+    "tmdb": 6589,
+    "api_title": "Смешарики",
+    "api_year": 2004
+  },
+  "tv_show:69758": {
+    "imdb": "tt0362384",
+    "tvdb": 141861,
+    "tmdb": 69758,
+    "api_title": "Вуншпунш",
+    "api_year": 2001
+  },
+  "tv_show:82728": {
+    "imdb": "tt7678620",
+    "tvdb": 353546,
+    "tmdb": 82728,
+    "api_title": "Блуи",
+    "api_year": 2018
+  },
+  "tv_show:83637": {
+    "imdb": "tt0213940",
+    "tvdb": null,
+    "tmdb": 83637,
+    "api_title": "Незнайка в Солнечном городе",
+    "api_year": 1977
+  },
+  "tv_show:86764": {
+    "imdb": "tt11947406",
+    "tvdb": null,
+    "tmdb": 86764,
+    "api_title": "Простоквашино",
+    "api_year": 2018
+  },
+  "tv_show:90461": {
+    "imdb": "tt8610082",
+    "tvdb": 362280,
+    "tmdb": 90461,
+    "api_title": "Монстры за работой",
+    "api_year": 2021
+  },
+  "tv_show:99955": {
+    "imdb": "tt1070806",
+    "tvdb": 178061,
+    "tmdb": 99955,
+    "api_title": "Котёнок по имени Гав",
+    "api_year": 1976
+  },
+  "tv_show:156541": {
+    "imdb": "tt12377014",
+    "tvdb": null,
+    "tmdb": 156541,
+    "api_title": "Смешарики: Новый сезон",
+    "api_year": 2020
+  },
+  "film:11430": {
+    "imdb": "tt0318403",
+    "tvdb": null,
+    "tmdb": 11430,
+    "api_title": "Король Лев 3: Акуна Матата",
+    "api_year": 2004
+  },
+  "film:329996": {
+    "imdb": "tt3861390",
+    "tvdb": null,
+    "tmdb": 329996,
+    "api_title": "Дамбо",
+    "api_year": 2019
+  },
+  "film:438695": {
+    "imdb": "tt6467266",
+    "tvdb": null,
+    "tmdb": 438695,
+    "api_title": "Зверопой 2",
+    "api_year": 2021
+  },
+  "film:49013": {
+    "imdb": "tt1216475",
+    "tvdb": null,
+    "tmdb": 49013,
+    "api_title": "Тачки 2",
+    "api_year": 2011
+  },
+  "film:512895": {
+    "imdb": "tt8096832",
+    "tvdb": null,
+    "tmdb": 512895,
+    "api_title": "Леди и Бродяга",
+    "api_year": 2019
+  },
+  "film:624620": {
+    "imdb": "tt8452202",
+    "tvdb": null,
+    "tmdb": 624620,
+    "api_title": "Щенячий патруль: Скорей спешим на помощь!",
+    "api_year": 2019
+  },
+  "film:637693": {
+    "imdb": "tt11084896",
+    "tvdb": null,
+    "tmdb": 637693,
+    "api_title": "Спирит Непокорный",
+    "api_year": 2021
+  },
+  "film:9732": {
+    "imdb": "tt0120131",
+    "tvdb": null,
+    "tmdb": 9732,
+    "api_title": "Король Лев 2: Гордость Симбы",
+    "api_year": 1998
+  }
+}
