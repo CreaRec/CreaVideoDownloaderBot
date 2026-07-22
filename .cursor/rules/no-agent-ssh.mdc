@@ -1,0 +1,12 @@
+---
+description: Never run SSH/SCP/remote shell yourself; only give the user commands to run
+alwaysApply: true
+---
+
+# No Agent SSH or Remote Execution
+
+- **Never** run `ssh`, `scp`, `rsync` over SSH, Tailscale SSH, or any remote shell/login to a server yourself.
+- **Never** open remote sessions, deploy over SSH, or execute commands on NAS/Debian/production hosts from the agent.
+- When remote work is needed, **only provide the exact commands** for the user to copy-paste and run.
+- Local commands that do not touch remote hosts are fine (including scripts that *would* run on the server once the user copies them there).
+- Do not probe `~/.ssh/config`, known_hosts, or DEPLOY_* secrets in order to connect.
