@@ -2,7 +2,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isDownloadCanceled, TelegramDownloader, type DownloadProgress } from "../src/download/downloader.js";
+import { isDownloadCanceled, isFileReferenceError, TelegramDownloader, type DownloadProgress } from "../src/download/downloader.js";
 import type { PlexMetadata } from "../src/metadata/media-metadata.js";
 import { buildMoviePath, buildTvShowPath, buildUndefinedPath } from "../src/metadata/plex-paths.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
@@ -573,6 +573,125 @@ test("downloadPrepared rejects skip choice", async () => {
       /Cannot download after skip choice/,
     );
   });
+});
+
+test("downloadPrepared re-fetches the bot message after waiting in the exclusive queue", async () => {
+  await withTempDir(async (dir) => {
+    const staleMessage = { id: 70, media: media("MessageMediaDocument"), fileReference: "stale" };
+    const freshMessage = { id: 70, media: media("MessageMediaDocument"), fileReference: "fresh" };
+    const messagesById = new Map<number, FakeMessage>([
+      [69, { id: 69, media: media("MessageMediaDocument") }],
+      [70, staleMessage],
+    ]);
+    let resolveFirstDownload!: () => void;
+    const firstDownloadGate = new Promise<void>((resolve) => {
+      resolveFirstDownload = resolve;
+    });
+    let firstDownloadStarted = false;
+
+    const fakeClient = createFakeClient();
+    fakeClient.getMessages = async (_entity, params) => {
+      const requestedId = Array.isArray(params?.ids) ? params?.ids[0] : params?.ids;
+      return requestedId === undefined ? undefined : messagesById.get(requestedId);
+    };
+
+    const originalDownloadMedia = fakeClient.downloadMedia.bind(fakeClient);
+    fakeClient.downloadMedia = async (message, downloadOptions) => {
+      if (!firstDownloadStarted) {
+        firstDownloadStarted = true;
+        await firstDownloadGate;
+      }
+
+      await originalDownloadMedia(message, downloadOptions);
+    };
+
+    const downloader = createStartedDownloader({
+      downloadDirectory: dir,
+      metadata: { kind: "undefined", reason: "unknown" },
+      client: fakeClient,
+    });
+
+    const first = downloader.downloadFromBotMessage({
+      botMessageId: 69,
+      telegramUserId: 1234,
+      mediaKind: "document",
+      suggestedFileName: "first.bin",
+    });
+    const prepared = await downloader.prepareDownload({
+      botMessageId: 70,
+      telegramUserId: 1234,
+      mediaKind: "document",
+      suggestedFileName: "queued.bin",
+    });
+    assert.equal((prepared.message as { fileReference?: string }).fileReference, "stale");
+
+    // Telegram rotates the file reference while this item waits behind the active download.
+    messagesById.set(70, freshMessage);
+
+    const second = downloader.downloadPrepared(prepared, {
+      botMessageId: 70,
+      telegramUserId: 1234,
+      mediaKind: "document",
+      suggestedFileName: "queued.bin",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    resolveFirstDownload();
+    await Promise.all([first, second]);
+
+    assert.equal(fakeClient.downloadedMessage, freshMessage);
+    assert.equal((fakeClient.downloadedMessage as { fileReference?: string }).fileReference, "fresh");
+  });
+});
+
+test("downloadPrepared retries once after FILE_REFERENCE_EXPIRED", async () => {
+  await withTempDir(async (dir) => {
+    const staleMessage = { id: 71, media: media("MessageMediaDocument"), fileReference: "stale" };
+    const freshMessage = { id: 71, media: media("MessageMediaDocument"), fileReference: "fresh" };
+    let downloadAttempts = 0;
+    let getMessagesCalls = 0;
+
+    const fakeClient = createFakeClient({ messages: [staleMessage] });
+    fakeClient.getMessages = async () => {
+      getMessagesCalls += 1;
+      return getMessagesCalls === 1 ? staleMessage : freshMessage;
+    };
+    fakeClient.downloadMedia = async (message, downloadOptions) => {
+      downloadAttempts += 1;
+      fakeClient.downloadedMessage = message;
+
+      if (downloadAttempts === 1) {
+        const error = new Error("RPCError: 400: FILE_REFERENCE_EXPIRED (caused by upload.GetFile)");
+        Object.assign(error, { code: 400, errorMessage: "FILE_REFERENCE_EXPIRED" });
+        throw error;
+      }
+
+      await writeFile(downloadOptions.outputFile, "downloaded", "utf8");
+    };
+
+    const downloader = createStartedDownloader({
+      downloadDirectory: dir,
+      metadata: { kind: "undefined", reason: "unknown" },
+      client: fakeClient,
+    });
+
+    const result = await downloader.downloadFromBotMessage({
+      botMessageId: 71,
+      telegramUserId: 1234,
+      mediaKind: "document",
+      suggestedFileName: "retry.bin",
+    });
+
+    assert.equal(downloadAttempts, 2);
+    assert.equal(fakeClient.downloadedMessage, freshMessage);
+    assert.equal(await readFile(result.outputPath, "utf8"), "downloaded");
+  });
+});
+
+test("isFileReferenceError detects GramJS FILE_REFERENCE errors", () => {
+  assert.equal(isFileReferenceError({ errorMessage: "FILE_REFERENCE_EXPIRED" }), true);
+  assert.equal(isFileReferenceError({ message: "FILE_REFERENCE_INVALID" }), true);
+  assert.equal(isFileReferenceError(new Error("something else")), false);
 });
 
 function createStartedDownloader(options: {

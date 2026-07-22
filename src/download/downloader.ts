@@ -41,7 +41,10 @@ export interface PreparedDownload {
   metadata: PlexMetadata;
   canonicalPath: string;
   existingPath?: string;
-  /** Opaque GramJS message handle used by downloadPrepared. */
+  /**
+   * Opaque GramJS message from prepare time. May have a stale file reference after
+   * queueing; downloadPrepared always re-fetches before downloadMedia.
+   */
   message: unknown;
 }
 
@@ -166,14 +169,8 @@ export class TelegramDownloader {
       await request.onOutputPath?.(outputPath);
       throwIfDownloadCanceled(request.signal);
 
-      await userClient.client.downloadMedia(prepared.message as never, {
-        outputFile: outputPath,
-        progressCallback: (downloaded: unknown, total: unknown) => {
-          throwIfDownloadCanceled(request.signal);
-          request.onProgress?.(toDownloadProgress(downloaded, total));
-          throwIfDownloadCanceled(request.signal);
-        },
-      } as never);
+      // Re-fetch after the exclusive wait so queued items do not use expired file refs.
+      await this.downloadMediaWithFreshReference(userClient, request, outputPath);
     });
 
     throwIfDownloadCanceled(request.signal);
@@ -184,6 +181,44 @@ export class TelegramDownloader {
       outputPath,
       bytes: fileStat.size,
     };
+  }
+
+  private async downloadMediaWithFreshReference(
+    userClient: UserDownloadClient,
+    request: DownloadRequest,
+    outputPath: string,
+  ): Promise<void> {
+    const maxAttempts = 2;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const message = await this.getDownloadableBotMessage(userClient, request);
+
+      if (!hasDownloadableMedia(message)) {
+        throw new Error(`Telegram message ${request.botMessageId} does not contain downloadable media.`);
+      }
+
+      throwIfDownloadCanceled(request.signal);
+
+      try {
+        await userClient.client.downloadMedia(message as never, {
+          outputFile: outputPath,
+          progressCallback: (downloaded: unknown, total: unknown) => {
+            throwIfDownloadCanceled(request.signal);
+            request.onProgress?.(toDownloadProgress(downloaded, total));
+            throwIfDownloadCanceled(request.signal);
+          },
+        } as never);
+        return;
+      } catch (error) {
+        if (attempt >= maxAttempts || !isFileReferenceError(error)) {
+          throw error;
+        }
+
+        this.logger.warn(
+          `File reference expired for Telegram message ${request.botMessageId}; refreshing and retrying.`,
+        );
+      }
+    }
   }
 
   private async withExclusiveMediaDownload<T>(telegramUserId: number, task: () => Promise<T>): Promise<T> {
@@ -430,6 +465,19 @@ function throwIfDownloadCanceled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new DownloadCanceledError();
   }
+}
+
+export function isFileReferenceError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const record = error as { errorMessage?: unknown; message?: unknown };
+  const text = [record.errorMessage, record.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+
+  return /FILE_REFERENCE_(EXPIRED|INVALID)/i.test(text);
 }
 
 export async function getAvailablePath(filePath: string): Promise<string> {
