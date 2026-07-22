@@ -5,11 +5,13 @@ import { test } from "node:test";
 import { isAllowedBrowsePath, isProtectedRoot, pruneEmptyParentDirectories } from "../src/download/download-paths.js";
 import { withTempDir } from "./helpers/test-utils.js";
 
-test("isProtectedRoot matches only top-level Movies, TV Shows, and Undefined", () => {
+test("isProtectedRoot matches only top-level Movies, TV Shows, Undefined, and Kids", () => {
   assert.equal(isProtectedRoot("Movies"), true);
   assert.equal(isProtectedRoot("TV Shows"), true);
   assert.equal(isProtectedRoot("Undefined"), true);
+  assert.equal(isProtectedRoot("Kids"), true);
   assert.equal(isProtectedRoot("Movies/Nested"), false);
+  assert.equal(isProtectedRoot("Kids/Movies"), false);
   assert.equal(isProtectedRoot("loose"), false);
 });
 
@@ -19,6 +21,8 @@ test("isAllowedBrowsePath allows only the download root and configured media roo
   assert.equal(isAllowedBrowsePath("Movies/Nested"), true);
   assert.equal(isAllowedBrowsePath("TV Shows/Show/Season 01"), true);
   assert.equal(isAllowedBrowsePath("Undefined/clip.mp4"), true);
+  assert.equal(isAllowedBrowsePath("Kids"), true);
+  assert.equal(isAllowedBrowsePath("Kids/Movies/Demo"), true);
   assert.equal(isAllowedBrowsePath("Архив"), false);
   assert.equal(isAllowedBrowsePath("Детское/clip.mp4"), false);
   assert.equal(isAllowedBrowsePath("loose.mp4"), false);

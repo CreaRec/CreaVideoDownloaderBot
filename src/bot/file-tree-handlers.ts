@@ -94,6 +94,41 @@ export class FileTreeHandlers {
         return;
       }
 
+      if (callback.action === "confirm-move") {
+        const relativePath = this.fileTree.getRelativePathForToken(callback.token);
+        const parentToken = this.fileTree.getParentToken(callback.token);
+        const { outcome, targetRelativePath } = await this.fileTree.moveTokenToKids(callback.token);
+
+        if (outcome === "protected") {
+          await answerCallback(ctx, this.logger, "This folder cannot be moved to Kids.");
+          return;
+        }
+
+        if (outcome === "target-exists") {
+          await answerCallback(ctx, this.logger, "Target already exists. Refusing to overwrite.");
+          return;
+        }
+
+        const view = await this.fileTree.renderDirectoryToken(parentToken);
+        const header =
+          outcome === "missing"
+            ? `Item was already missing: ${relativePath}`
+            : `Moved: ${relativePath} → ${targetRelativePath}`;
+        await ctx.telegram.editMessageText(
+          message.chat.id,
+          message.message_id,
+          undefined,
+          `${header}\n\n${view.message}`,
+          view.extra,
+        );
+        await answerCallback(
+          ctx,
+          this.logger,
+          outcome === "missing" ? "Item was already missing." : "Moved to Kids.",
+        );
+        return;
+      }
+
       if (callback.action === "fix") {
         await this.metadataFix.startMetadataFix(ctx, callback.token);
         return;
@@ -104,10 +139,20 @@ export class FileTreeHandlers {
           ? await this.fileTree.renderDirectoryToken(callback.token)
           : callback.action === "delete"
             ? await this.fileTree.renderDeleteConfirmationToken(callback.token)
-            : await this.fileTree.renderSelectedToken(callback.token);
+            : callback.action === "move"
+              ? await this.fileTree.renderMoveToKidsConfirmationToken(callback.token)
+              : await this.fileTree.renderSelectedToken(callback.token);
 
       await ctx.telegram.editMessageText(message.chat.id, message.message_id, undefined, view.message, view.extra);
-      await answerCallback(ctx, this.logger, callback.action === "delete" ? "Confirm deletion." : "File tree updated.");
+      await answerCallback(
+        ctx,
+        this.logger,
+        callback.action === "delete"
+          ? "Confirm deletion."
+          : callback.action === "move"
+            ? "Confirm move to Kids."
+            : "File tree updated.",
+      );
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.logger.warn("Failed to handle file tree action.", error);

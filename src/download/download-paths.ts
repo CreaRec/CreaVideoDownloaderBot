@@ -1,7 +1,7 @@
 import { readdir, rmdir, unlink } from "node:fs/promises";
 import path from "node:path";
 
-export const PROTECTED_ROOT_NAMES = new Set(["Movies", "TV Shows", "Undefined"]);
+export const PROTECTED_ROOT_NAMES = new Set(["Movies", "TV Shows", "Undefined", "Kids"]);
 
 export function isPathInsideDirectory(filePath: string, directory: string): boolean {
   const resolvedFilePath = path.resolve(filePath);

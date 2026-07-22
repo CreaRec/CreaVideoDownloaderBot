@@ -9,12 +9,26 @@ import {
   pruneEmptyParentDirectories,
   PROTECTED_ROOT_NAMES,
 } from "../download/download-paths.js";
+import {
+  buildKidsTargetRelativePath,
+  canMoveRelativePathToKids,
+  movePathToKids,
+} from "./kids-move.js";
 
 export { isPathInsideDirectory } from "../download/download-paths.js";
 
 const CALLBACK_PREFIX = "file-tree";
 
-export type FileTreeAction = "open" | "select" | "delete" | "confirm" | "cancel" | "refresh" | "fix";
+export type FileTreeAction =
+  | "open"
+  | "select"
+  | "delete"
+  | "confirm"
+  | "cancel"
+  | "refresh"
+  | "fix"
+  | "move"
+  | "confirm-move";
 
 export interface FileTreeCallback {
   action: FileTreeAction;
@@ -29,6 +43,8 @@ export interface FileTreeView {
   message: string;
   extra: FileTreeReplyMarkup;
 }
+
+export type MoveToKidsOutcome = "moved" | "missing" | "protected" | "target-exists";
 
 interface TreeEntry {
   name: string;
@@ -87,11 +103,13 @@ export class FileTreeBrowser {
     const itemStat = await stat(itemPath);
     const parentPath = getParentRelativePath(relativePath);
     const canFix = itemStat.isDirectory() && this.canFixMetadata(relativePath);
+    const canMove = itemStat.isDirectory() && this.canMoveToKids(relativePath);
     const rows = [
       ...(itemStat.isDirectory()
         ? [[button("Open", createCallbackData("open", this.getOrCreateToken(relativePath)))]]
         : []),
       ...(canFix ? [[button("Fix metadata", createCallbackData("fix", this.getOrCreateToken(relativePath)))]] : []),
+      ...(canMove ? [[button("Move to Kids", createCallbackData("move", this.getOrCreateToken(relativePath)))]] : []),
       ...(this.canDelete(relativePath)
         ? [[button("Delete", createCallbackData("delete", this.getOrCreateToken(relativePath)))]]
         : []),
@@ -105,7 +123,7 @@ export class FileTreeBrowser {
       message: [
         `Selected ${itemStat.isDirectory() ? "folder" : "file"}: ${formatRelativePath(relativePath)}`,
         `Size: ${itemStat.isDirectory() ? "folder" : formatBytes(itemStat.size)}`,
-        this.canDelete(relativePath) || canFix
+        this.canDelete(relativePath) || canFix || canMove
           ? "Choose an action."
           : "This item cannot be deleted from the bot.",
       ].join("\n"),
@@ -115,6 +133,10 @@ export class FileTreeBrowser {
 
   canFixMetadata(relativePath: string): boolean {
     return relativePath !== "" && !isProtectedRoot(relativePath);
+  }
+
+  canMoveToKids(relativePath: string): boolean {
+    return canMoveRelativePathToKids(relativePath);
   }
 
   resolveAbsolutePath(relativePath: string): string {
@@ -136,6 +158,37 @@ export class FileTreeBrowser {
           inline_keyboard: [
             [
               button("Confirm delete", createCallbackData("confirm", token)),
+              button("Cancel", createCallbackData("cancel", token)),
+            ],
+          ],
+        },
+      },
+    };
+  }
+
+  async renderMoveToKidsConfirmationToken(token: string): Promise<FileTreeView> {
+    const relativePath = this.getRelativePathForToken(token);
+    const itemPath = this.resolvePath(relativePath);
+    const itemStat = await stat(itemPath);
+
+    if (!itemStat.isDirectory() || !this.canMoveToKids(relativePath)) {
+      return this.renderSelectedToken(token);
+    }
+
+    const targetRelativePath = buildKidsTargetRelativePath(relativePath);
+
+    return {
+      message: [
+        "Move this folder to Kids?",
+        `${formatRelativePath(relativePath)}`,
+        "→",
+        `${formatRelativePath(targetRelativePath)}`,
+      ].join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              button("Confirm move", createCallbackData("confirm-move", token)),
               button("Cancel", createCallbackData("cancel", token)),
             ],
           ],
@@ -178,6 +231,54 @@ export class FileTreeBrowser {
     }
 
     return "deleted";
+  }
+
+  async moveTokenToKids(token: string): Promise<{ outcome: MoveToKidsOutcome; targetRelativePath?: string }> {
+    const relativePath = this.getRelativePathForToken(token);
+
+    if (!this.canMoveToKids(relativePath)) {
+      return { outcome: "protected" };
+    }
+
+    const sourcePath = this.resolvePath(relativePath);
+    let itemStat;
+
+    try {
+      itemStat = await stat(sourcePath);
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        return { outcome: "missing" };
+      }
+
+      throw error;
+    }
+
+    if (!itemStat.isDirectory()) {
+      return { outcome: "protected" };
+    }
+
+    const targetRelativePath = buildKidsTargetRelativePath(relativePath);
+    const targetPath = this.resolvePath(targetRelativePath);
+
+    try {
+      await movePathToKids(sourcePath, targetPath);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Target already exists")) {
+        return { outcome: "target-exists", targetRelativePath };
+      }
+
+      throw error;
+    }
+
+    this.forgetPath(relativePath);
+
+    const removedParentPaths = await pruneEmptyParentDirectories(sourcePath, this.rootDirectory);
+
+    for (const removedParentPath of removedParentPaths) {
+      this.forgetPath(removedParentPath);
+    }
+
+    return { outcome: "moved", targetRelativePath };
   }
 
   getParentToken(token: string): string {
@@ -373,7 +474,9 @@ function isFileTreeAction(value: string): value is FileTreeAction {
     value === "confirm" ||
     value === "cancel" ||
     value === "refresh" ||
-    value === "fix"
+    value === "fix" ||
+    value === "move" ||
+    value === "confirm-move"
   );
 }
 

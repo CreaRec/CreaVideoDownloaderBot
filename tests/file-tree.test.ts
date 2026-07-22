@@ -35,6 +35,7 @@ test("/files tree renders protected roots and keeps them browse-only", async () 
     await mkdir(path.join(dir, "Movies"), { recursive: true });
     await mkdir(path.join(dir, "TV Shows"), { recursive: true });
     await mkdir(path.join(dir, "Undefined"), { recursive: true });
+    await mkdir(path.join(dir, "Kids"), { recursive: true });
     await mkdir(path.join(dir, "Архив"), { recursive: true });
     await writeFile(path.join(dir, "loose.mp4"), "video", "utf8");
 
@@ -44,6 +45,7 @@ test("/files tree renders protected roots and keeps them browse-only", async () 
     assert.match(rootView.message, /Folder Movies\/ \[protected\]/);
     assert.match(rootView.message, /Folder TV Shows\/ \[protected\]/);
     assert.match(rootView.message, /Folder Undefined\/ \[protected\]/);
+    assert.match(rootView.message, /Folder Kids\/ \[protected\]/);
     assert.doesNotMatch(rootView.message, /Архив/);
     assert.doesNotMatch(rootView.message, /loose\.mp4/);
     assert.equal(hasButton(rootView, "Folder Архив"), false);
@@ -57,6 +59,13 @@ test("/files tree renders protected roots and keeps them browse-only", async () 
     assert.match(selectedFilm.message, /This item cannot be deleted/);
     assert.equal(hasButton(selectedFilm, "Open"), true);
     assert.equal(hasButton(selectedFilm, "Delete"), false);
+    assert.equal(hasButton(selectedFilm, "Move to Kids"), false);
+
+    const kidsCallback = browser.parseCallbackData(findButton(rootView, "Folder Kids").callback_data);
+    assert.ok(kidsCallback);
+    const selectedKids = await browser.renderSelectedToken(kidsCallback.token);
+    assert.equal(hasButton(selectedKids, "Move to Kids"), false);
+    assert.equal(hasButton(selectedKids, "Delete"), false);
   });
 });
 
@@ -101,6 +110,7 @@ test("/files tree can browse protected roots and delete nested folders", async (
     const selectedNested = await browser.renderSelectedToken(nestedCallback.token);
     assert.equal(hasButton(selectedNested, "Open"), true);
     assert.equal(hasButton(selectedNested, "Fix metadata"), true);
+    assert.equal(hasButton(selectedNested, "Move to Kids"), true);
     assert.equal(hasButton(selectedNested, "Delete"), true);
 
     const deleteCallback = browser.parseCallbackData(findButton(selectedNested, "Delete").callback_data);
@@ -210,6 +220,122 @@ test("/files tree rejects paths outside the download directory", async () => {
     assert.equal(isPathInsideDirectory(path.join(dir, "inside.mp4"), dir), true);
     assert.equal(isPathInsideDirectory(outsidePath, dir), false);
     await assert.rejects(browser.renderSelectedToken(token), /outside/);
+  });
+});
+
+test("/files tree Move to Kids is only on library folders, not files or Kids paths", async () => {
+  await withTempDir(async (dir) => {
+    const movieFolder = path.join(dir, "Movies", "Demo Movie");
+    const kidsFolder = path.join(dir, "Kids", "Movies", "Already Kids");
+    await mkdir(movieFolder, { recursive: true });
+    await writeFile(path.join(movieFolder, "movie.mp4"), "video", "utf8");
+    await mkdir(kidsFolder, { recursive: true });
+    await writeFile(path.join(kidsFolder, "movie.mp4"), "video", "utf8");
+
+    const browser = new FileTreeBrowser(dir);
+    const rootView = await browser.renderRoot();
+
+    const moviesCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
+    assert.ok(moviesCallback);
+    const selectedMovies = await browser.renderSelectedToken(moviesCallback.token);
+    assert.equal(hasButton(selectedMovies, "Move to Kids"), false);
+
+    const openMovies = browser.parseCallbackData(findButton(selectedMovies, "Open").callback_data);
+    assert.ok(openMovies);
+    const moviesView = await browser.renderDirectoryToken(openMovies.token);
+    const filmCallback = browser.parseCallbackData(findButton(moviesView, "Folder Demo Movie").callback_data);
+    assert.ok(filmCallback);
+
+    const selectedFilm = await browser.renderSelectedToken(filmCallback.token);
+    assert.equal(hasButton(selectedFilm, "Move to Kids"), true);
+    const moveCallback = browser.parseCallbackData(findButton(selectedFilm, "Move to Kids").callback_data);
+    assert.ok(moveCallback);
+    assert.equal(moveCallback.action, "move");
+
+    const openFilm = browser.parseCallbackData(findButton(selectedFilm, "Open").callback_data);
+    assert.ok(openFilm);
+    const filmView = await browser.renderDirectoryToken(openFilm.token);
+    const fileCallback = browser.parseCallbackData(findButton(filmView, "File movie.mp4").callback_data);
+    assert.ok(fileCallback);
+    const selectedFile = await browser.renderSelectedToken(fileCallback.token);
+    assert.equal(hasButton(selectedFile, "Move to Kids"), false);
+
+    const kidsRootCallback = browser.parseCallbackData(findButton(rootView, "Folder Kids").callback_data);
+    assert.ok(kidsRootCallback);
+    const selectedKidsRoot = await browser.renderSelectedToken(kidsRootCallback.token);
+    const openKids = browser.parseCallbackData(findButton(selectedKidsRoot, "Open").callback_data);
+    assert.ok(openKids);
+    const kidsView = await browser.renderDirectoryToken(openKids.token);
+    const kidsMoviesCallback = browser.parseCallbackData(findButton(kidsView, "Folder Movies").callback_data);
+    assert.ok(kidsMoviesCallback);
+    const selectedKidsMovies = await browser.renderSelectedToken(kidsMoviesCallback.token);
+    const openKidsMovies = browser.parseCallbackData(findButton(selectedKidsMovies, "Open").callback_data);
+    assert.ok(openKidsMovies);
+    const kidsMoviesView = await browser.renderDirectoryToken(openKidsMovies.token);
+    const kidsFilmCallback = browser.parseCallbackData(findButton(kidsMoviesView, "Folder Already Kids").callback_data);
+    assert.ok(kidsFilmCallback);
+    const selectedKidsFilm = await browser.renderSelectedToken(kidsFilmCallback.token);
+    assert.equal(hasButton(selectedKidsFilm, "Move to Kids"), false);
+  });
+});
+
+test("/files tree Move to Kids moves folder and refuses overwrite", async () => {
+  await withTempDir(async (dir) => {
+    const sourceFolder = path.join(dir, "Movies", "Demo Movie");
+    const targetFolder = path.join(dir, "Kids", "Movies", "Demo Movie");
+    await mkdir(sourceFolder, { recursive: true });
+    await writeFile(path.join(sourceFolder, "movie.mp4"), "video", "utf8");
+
+    const browser = new FileTreeBrowser(dir);
+    const rootView = await browser.renderRoot();
+    const moviesCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
+    assert.ok(moviesCallback);
+    const selectedMovies = await browser.renderSelectedToken(moviesCallback.token);
+    const openMovies = browser.parseCallbackData(findButton(selectedMovies, "Open").callback_data);
+    assert.ok(openMovies);
+    const moviesView = await browser.renderDirectoryToken(openMovies.token);
+    const filmCallback = browser.parseCallbackData(findButton(moviesView, "Folder Demo Movie").callback_data);
+    assert.ok(filmCallback);
+
+    const selectedFilm = await browser.renderSelectedToken(filmCallback.token);
+    const moveCallback = browser.parseCallbackData(findButton(selectedFilm, "Move to Kids").callback_data);
+    assert.ok(moveCallback);
+
+    const confirmation = await browser.renderMoveToKidsConfirmationToken(moveCallback.token);
+    assert.match(confirmation.message, /Move this folder to Kids/);
+    assert.match(confirmation.message, /Movies\/Demo Movie/);
+    assert.match(confirmation.message, /Kids\/Movies\/Demo Movie/);
+    assert.equal(hasButton(confirmation, "Confirm move"), true);
+
+    const confirmCallback = browser.parseCallbackData(findButton(confirmation, "Confirm move").callback_data);
+    assert.ok(confirmCallback);
+    assert.equal(confirmCallback.action, "confirm-move");
+
+    const { outcome, targetRelativePath } = await browser.moveTokenToKids(confirmCallback.token);
+    assert.equal(outcome, "moved");
+    assert.equal(targetRelativePath?.split(path.sep).join("/"), "Kids/Movies/Demo Movie");
+    await assert.rejects(stat(sourceFolder));
+    await stat(path.join(targetFolder, "movie.mp4"));
+
+    const moviesAfter = await browser.renderDirectoryToken(openMovies.token);
+    assert.doesNotMatch(moviesAfter.message, /Demo Movie/);
+
+    await mkdir(sourceFolder, { recursive: true });
+    await writeFile(path.join(sourceFolder, "movie.mp4"), "again", "utf8");
+    const browser2 = new FileTreeBrowser(dir);
+    const root2 = await browser2.renderRoot();
+    const movies2 = browser2.parseCallbackData(findButton(root2, "Folder Movies").callback_data);
+    assert.ok(movies2);
+    const selectedMovies2 = await browser2.renderSelectedToken(movies2.token);
+    const openMovies2 = browser2.parseCallbackData(findButton(selectedMovies2, "Open").callback_data);
+    assert.ok(openMovies2);
+    const moviesView2 = await browser2.renderDirectoryToken(openMovies2.token);
+    const film2 = browser2.parseCallbackData(findButton(moviesView2, "Folder Demo Movie").callback_data);
+    assert.ok(film2);
+    const conflict = await browser2.moveTokenToKids(film2.token);
+    assert.equal(conflict.outcome, "target-exists");
+    await stat(sourceFolder);
+    await stat(targetFolder);
   });
 });
 
