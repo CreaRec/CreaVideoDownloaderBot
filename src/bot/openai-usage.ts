@@ -49,7 +49,12 @@ export class OpenAIUsageService implements OpenAIUsageReporter {
         totalRequests,
       });
     } catch (error) {
-      this.logger.warn("Failed to fetch OpenAI usage.", error);
+      this.logger.exception("[usage] failed to fetch OpenAI usage", error, {
+        component: "usage",
+        handler: "usage",
+        step: "fetch",
+        error_type: "openai",
+      });
       return "Could not fetch OpenAI usage right now. Check the logs for details.";
     }
   }

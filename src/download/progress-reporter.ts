@@ -72,7 +72,14 @@ export function createProgressReporter(options: ProgressReporterOptions): {
       }
 
       lastUpdateAt = now;
-      options.logger.info(`Downloading Telegram message ${options.messageId}: ${formatBytes(progress.downloadedBytes)} downloaded`);
+      options.logger.debug("[download] progress bytes", {
+        component: "download",
+        handler: "download",
+        step: "progress",
+        bot_message_id: options.messageId,
+        file_name: options.fileName,
+        downloaded_bytes: progress.downloadedBytes,
+      });
       sendProgress(`Downloading ${options.fileName}: ${formatBytes(progress.downloadedBytes)} downloaded`);
       return;
     }
@@ -85,7 +92,14 @@ export function createProgressReporter(options: ProgressReporterOptions): {
 
     lastPercent = steppedPercent;
     lastUpdateAt = now;
-    options.logger.info(`Downloading Telegram message ${options.messageId}: ${percent}%`);
+    options.logger.debug("[download] progress percent", {
+      component: "download",
+      handler: "download",
+      step: "progress",
+      bot_message_id: options.messageId,
+      file_name: options.fileName,
+      percent,
+    });
     sendProgress(
       `Downloading ${options.fileName}: ${percent}% (${formatBytes(progress.downloadedBytes)} of ${formatBytes(progress.totalBytes)})`,
     );
@@ -132,7 +146,11 @@ export async function safeStandaloneReply(reply: ReplyFn, logger: Logger, messag
   try {
     await reply(message);
   } catch (error) {
-    logger.warn("Failed to send Telegram reply.", error);
+    logger.exception("[telegram] failed to send reply", error, {
+      component: "telegram",
+      step: "reply",
+      result: "error",
+    });
   }
 }
 

@@ -4,6 +4,7 @@ import type { Context } from "telegraf";
 import type { InlineKeyboardMarkup } from "telegraf/types";
 import type { FileTreeBrowser } from "../files/file-tree.js";
 import type { Logger } from "../config/logger.js";
+import { truncateForLog } from "../config/logger.js";
 import { parseImdbId } from "../metadata/imdb-id.js";
 import type { MetadataFixHintParser } from "../metadata/metadata-fix-hint.js";
 import type { MetadataFixRenamer } from "../metadata/metadata-fix-renamer.js";
@@ -72,6 +73,13 @@ export class MetadataFixHandlers {
     this.pendingFixHintByUserId.set(userId, {
       relativePath,
       expiresAt: Date.now() + METADATA_FIX_TTL_MS,
+    });
+
+    this.logger.info("[metadata_fix] session started", {
+      component: "metadata_fix",
+      handler: "metadata_fix",
+      step: "start",
+      folder_name: formatRelativePath(relativePath),
     });
 
     await ctx.reply(
@@ -233,7 +241,12 @@ export class MetadataFixHandlers {
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      this.logger.warn("Failed to apply metadata fix rename.", error);
+      this.logger.exception("[metadata_fix] failed to apply rename", error, {
+        component: "metadata_fix",
+        handler: "metadata_fix",
+        step: "rename",
+        result: "error",
+      });
       if (message) {
         await ctx.telegram.editMessageText(
           message.chat.id,
@@ -284,14 +297,36 @@ export class MetadataFixHandlers {
       return;
     }
 
+    this.logger.info("[metadata_fix] hint received", {
+      component: "metadata_fix",
+      handler: "metadata_fix",
+      step: "hint",
+      folder_name: formatRelativePath(relativePath),
+      has_image: Boolean(input.image),
+      ...(input.text ? { user_text: truncateForLog(input.text) } : {}),
+    });
+
     await ctx.reply("Looking up TMDB matches...");
 
     const imdbId = parseImdbId(input.text);
 
     if (imdbId) {
+      this.logger.info("[metadata_fix] resolving by IMDb id", {
+        component: "metadata_fix",
+        handler: "metadata_fix",
+        step: "imdb_lookup",
+        imdb_id: imdbId,
+      });
       const candidates = await this.tmdbResolver.findCandidatesByImdbId(imdbId);
 
       if (candidates.length === 0) {
+        this.logger.info("[metadata_fix] no IMDb matches", {
+          component: "metadata_fix",
+          handler: "metadata_fix",
+          step: "imdb_lookup",
+          result: "skipped",
+          imdb_id: imdbId,
+        });
         await ctx.reply(`No TMDB match found for IMDb ID ${imdbId}.`);
         return;
       }
@@ -308,9 +343,25 @@ export class MetadataFixHandlers {
     });
 
     if (hint.kind === "undefined") {
+      this.logger.info("[metadata_fix] hint unresolved", {
+        component: "metadata_fix",
+        handler: "metadata_fix",
+        step: "hint_parse",
+        result: "skipped",
+        reason: hint.reason,
+      });
       await ctx.reply(`Could not understand the correction: ${hint.reason}\nUse /files and try Fix metadata again.`);
       return;
     }
+
+    this.logger.info("[metadata_fix] searching TMDB", {
+      component: "metadata_fix",
+      handler: "metadata_fix",
+      step: "search",
+      metadata_kind: hint.kind,
+      title: hint.title,
+      ...(hint.year !== undefined ? { year: hint.year } : {}),
+    });
 
     const candidates = await this.tmdbResolver.searchCandidates({
       kind: hint.kind,
@@ -320,6 +371,14 @@ export class MetadataFixHandlers {
     });
 
     if (candidates.length === 0) {
+      this.logger.info("[metadata_fix] no TMDB matches", {
+        component: "metadata_fix",
+        handler: "metadata_fix",
+        step: "search",
+        result: "skipped",
+        metadata_kind: hint.kind,
+        title: hint.title,
+      });
       await ctx.reply(
         `No TMDB matches found for ${hint.kind === "film" ? "film" : "TV show"} "${hint.title}"${hint.year ? ` (${hint.year})` : ""}.`,
       );
@@ -355,6 +414,16 @@ export class MetadataFixHandlers {
       expiresAt: Date.now() + METADATA_FIX_TTL_MS,
     });
     this.pendingFixPickTokenByUserId.set(userId, token);
+
+    this.logger.info("[metadata_fix] presenting candidates", {
+      component: "metadata_fix",
+      handler: "metadata_fix",
+      step: "present",
+      candidate_count: candidates.length,
+      metadata_kind: kind,
+      search_label: searchLabel,
+      folder_name: formatRelativePath(relativePath),
+    });
 
     await ctx.reply(
       [

@@ -1,5 +1,5 @@
-import { Telegraf } from "telegraf";
-import type { Context } from "telegraf";
+import { context } from "@opentelemetry/api";
+import { Telegraf, type Context } from "telegraf";
 import { ActiveDownloads } from "../download/active-downloads.js";
 import { DeleteButtonState } from "../files/delete-buttons.js";
 import { DeleteHandlers } from "./delete-handlers.js";
@@ -8,6 +8,7 @@ import { DownloadHandlers } from "./download-handlers.js";
 import { FileTreeBrowser } from "../files/file-tree.js";
 import { FileTreeHandlers } from "./file-tree-handlers.js";
 import type { Logger } from "../config/logger.js";
+import { truncateForLog } from "../config/logger.js";
 import { MediaClassifier } from "../metadata/media-classifier.js";
 import { MetadataFixHandlers } from "./metadata-fix-handlers.js";
 import { MetadataFixHintParser } from "../metadata/metadata-fix-hint.js";
@@ -15,6 +16,12 @@ import { MetadataFixRenamer } from "../metadata/metadata-fix-renamer.js";
 import { OpenAIUsageService, type OpenAIUsageReporter } from "./openai-usage.js";
 import type { Settings } from "../config/settings.js";
 import { StatusEditScheduler } from "../download/status-edit-scheduler.js";
+import {
+  markUpdateError,
+  markUpdateSkipped,
+  setUpdateHandler,
+  telemetryMiddleware,
+} from "../telemetry.js";
 import {
   BOT_HELP_MESSAGE,
   BOT_PRIVATE_MESSAGE,
@@ -82,21 +89,39 @@ export class BotService {
 
   async start(): Promise<void> {
     await this.bot.launch();
-    this.logger.info("Telegram bot started.");
+    this.logger.info("[bot] started", { component: "bot", step: "start" });
   }
 
   async stop(reason = "shutdown"): Promise<void> {
     this.bot.stop(reason);
-    this.logger.info("Telegram bot stopped.");
+    this.logger.info("[bot] stopped", { component: "bot", step: "stop", reason });
   }
 
   private registerHandlers(): void {
-    this.bot.start(async (ctx) => {
+    this.bot.use(telemetryMiddleware());
+
+    this.bot.use(async (ctx, next) => {
       if (!this.isAllowed(ctx.from?.id)) {
-        await ctx.reply(BOT_PRIVATE_MESSAGE);
+        markUpdateSkipped(ctx, "auth");
+        this.logger.info("[bot] unauthorized user rejected", {
+          component: "bot",
+          handler: "auth",
+          result: "skipped",
+          step: "auth_reject",
+        });
+        if (ctx.callbackQuery) {
+          await ctx.answerCbQuery(BOT_PRIVATE_MESSAGE).catch(() => undefined);
+        } else if (ctx.chat) {
+          await ctx.reply(BOT_PRIVATE_MESSAGE).catch(() => undefined);
+        }
         return;
       }
+      return next();
+    });
 
+    this.bot.start(async (ctx) => {
+      setUpdateHandler(ctx, "start");
+      this.logger.info("[bot] /start", { component: "bot", handler: "start", step: "reply" });
       await ctx.reply(
         "Send or forward a video/document here and I will download it to the configured directory.",
         createMainReplyKeyboard(),
@@ -104,19 +129,24 @@ export class BotService {
     });
 
     this.bot.command("files", async (ctx) => {
+      setUpdateHandler(ctx, "files");
       await this.handleFilesCommand(ctx);
     });
 
     this.bot.command("usage", async (ctx) => {
+      setUpdateHandler(ctx, "usage");
       await this.handleUsageCommand(ctx);
     });
 
     this.bot.command("restart", async (ctx) => {
+      setUpdateHandler(ctx, "restart");
       await this.handleRestartCommand(ctx);
     });
 
     this.bot.on("video", async (ctx) => {
+      setUpdateHandler(ctx, "download");
       await this.handleDownloadableMessage(
+        ctx,
         ctx.from?.id,
         ctx.message,
         ctx.message.chat.id,
@@ -126,10 +156,13 @@ export class BotService {
 
     this.bot.on("document", async (ctx) => {
       if (await this.metadataFix.tryHandleMetadataFixDocument(ctx)) {
+        setUpdateHandler(ctx, "metadata_fix");
         return;
       }
 
+      setUpdateHandler(ctx, "download");
       await this.handleDownloadableMessage(
+        ctx,
         ctx.from?.id,
         ctx.message,
         ctx.message.chat.id,
@@ -138,6 +171,7 @@ export class BotService {
     });
 
     this.bot.on("photo", async (ctx) => {
+      setUpdateHandler(ctx, "metadata_fix");
       await this.metadataFix.handleMetadataFixPhoto(ctx);
     });
 
@@ -146,29 +180,43 @@ export class BotService {
     });
 
     this.bot.action(/^file-delete:/, async (ctx) => {
+      setUpdateHandler(ctx, "delete");
       await this.handleDeleteButton(ctx);
     });
 
     this.bot.action(/^file-tree:/, async (ctx) => {
+      setUpdateHandler(ctx, "file_tree");
       await this.handleFileTreeButton(ctx);
     });
 
     this.bot.action(/^fix-meta:/, async (ctx) => {
+      setUpdateHandler(ctx, "metadata_fix");
       await this.metadataFix.handleMetadataFixButton(ctx);
     });
 
     this.bot.action(/^dl-dup:/, async (ctx) => {
+      setUpdateHandler(ctx, "duplicate_choice");
       await this.downloadHandlers.handleDuplicateChoiceButton(ctx);
     });
 
     this.bot.on("message", async (ctx) => {
-      if (this.isAllowed(ctx.from?.id)) {
-        await ctx.reply(BOT_HELP_MESSAGE, createMainReplyKeyboard());
-      }
+      setUpdateHandler(ctx, "help");
+      this.logger.info("[bot] unhandled message type; sending help", {
+        component: "bot",
+        handler: "help",
+        step: "reply",
+      });
+      await ctx.reply(BOT_HELP_MESSAGE, createMainReplyKeyboard());
     });
 
     this.bot.catch((error, ctx) => {
-      this.logger.error(`Bot error while handling update ${ctx.update.update_id}`, error);
+      // Metrics for propagated errors are recorded by telemetryMiddleware when next() throws.
+      markUpdateError(ctx, error);
+      this.logger.exception("[bot] unhandled error", error, {
+        component: "bot",
+        step: "catch",
+        handler: "catch",
+      });
     });
   }
 
@@ -176,36 +224,39 @@ export class BotService {
     const text = "message" in ctx && ctx.message && "text" in ctx.message ? ctx.message.text : undefined;
 
     if (isFilesButtonText(text)) {
+      setUpdateHandler(ctx, "files");
       await this.handleFilesCommand(ctx);
       return;
     }
 
     if (await this.metadataFix.tryHandleMetadataFixText(ctx)) {
+      setUpdateHandler(ctx, "metadata_fix");
       return;
     }
 
-    if (this.isAllowed(ctx.from?.id)) {
-      await ctx.reply(BOT_HELP_MESSAGE, createMainReplyKeyboard());
-    }
+    setUpdateHandler(ctx, "help");
+    this.logger.info("[bot] text help reply", {
+      component: "bot",
+      handler: "help",
+      step: "reply",
+      ...(text ? { user_text: truncateForLog(text) } : {}),
+    });
+    await ctx.reply(BOT_HELP_MESSAGE, createMainReplyKeyboard());
   }
 
   private async handleDownloadableMessage(
+    ctx: Context,
     fromUserId: number | undefined,
     message: DownloadableMessage,
     chatId: number,
     reply: ReplyFn,
   ): Promise<void> {
-    await this.downloadHandlers.handleDownloadableMessage(fromUserId, message, chatId, reply);
-  }
-
-  private async downloadAndNotify(
-    fromUserId: number,
-    message: DownloadableMessage,
-    chatId: number,
-    reply: ReplyFn,
-    statusMessageId: number | undefined,
-  ): Promise<void> {
-    await this.downloadHandlers.downloadAndNotify(fromUserId, message, chatId, reply, statusMessageId);
+    // Preserve the update trace for fire-and-forget download work.
+    const parentContext = context.active();
+    await this.downloadHandlers.handleDownloadableMessage(fromUserId, message, chatId, reply, {
+      parentContext,
+      onAuthSkipped: () => markUpdateSkipped(ctx, "auth"),
+    });
   }
 
   private async handleDeleteButton(ctx: Context): Promise<void> {
@@ -213,6 +264,12 @@ export class BotService {
   }
 
   private async handleFilesCommand(ctx: Context): Promise<void> {
+    if (!this.isAllowed(ctx.from?.id)) {
+      await ctx.reply(BOT_PRIVATE_MESSAGE);
+      return;
+    }
+
+    this.logger.info("[bot] files command", { component: "bot", handler: "files", step: "start" });
     await this.fileTreeHandlers.handleFilesCommand(ctx);
   }
 
@@ -226,6 +283,12 @@ export class BotService {
       return;
     }
 
+    this.logger.info("[bot] usage command", {
+      component: "bot",
+      handler: "usage",
+      step: "start",
+      ...(getCommandArgument(ctx) ? { user_text: truncateForLog(getCommandArgument(ctx)!) } : {}),
+    });
     await ctx.reply(await this.openAIUsage.createReport(getCommandArgument(ctx)));
   }
 
@@ -236,7 +299,11 @@ export class BotService {
     }
 
     await ctx.reply("Restarting service...");
-    this.logger.warn(`Restart requested by Telegram user ${ctx.from?.id}.`);
+    this.logger.warn("[bot] restart requested", {
+      component: "bot",
+      handler: "restart",
+      step: "restart",
+    });
 
     const timeout = setTimeout(() => {
       this.restartService();

@@ -187,7 +187,7 @@ test("classify logs and falls back for malformed model responses", async () => {
 
     assert.deepEqual(await classifier.classify({}), { kind: "undefined", reason: "Classifier request failed." });
     assert.deepEqual(await classifier.classify({}), { kind: "undefined", reason: "Classifier returned invalid JSON shape." });
-    assert.equal(logger.entries.filter((entry) => entry.level === "warn").length, 2);
+    assert.equal(logger.entries.filter((entry) => entry.level === "warn" || entry.level === "error").length, 2);
   });
 });
 

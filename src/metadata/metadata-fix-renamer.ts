@@ -66,7 +66,12 @@ export class MetadataFixRenamer {
         movedSources.push(mediaFile);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed to rename media file during metadata fix: ${mediaFile}`, error);
+        this.logger.exception("[metadata_fix] failed to rename media file", error, {
+          component: "metadata_fix",
+          handler: "metadata_fix",
+          step: "rename_file",
+          file_name: path.basename(mediaFile),
+        });
         skipped.push({ path: mediaFile, reason });
       }
     }

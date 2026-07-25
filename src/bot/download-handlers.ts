@@ -1,3 +1,6 @@
+import path from "node:path";
+import { context, trace } from "@opentelemetry/api";
+import type { Context as OtelContext } from "@opentelemetry/api";
 import type { Context } from "telegraf";
 import {
   createDeleteButtonReplyMarkup,
@@ -17,6 +20,7 @@ import {
 } from "../download/downloader.js";
 import type { ActiveDownloads } from "../download/active-downloads.js";
 import type { Logger } from "../config/logger.js";
+import { truncateForLog } from "../config/logger.js";
 import { createProgressReporter } from "../download/progress-reporter.js";
 import type { Settings } from "../config/settings.js";
 import type { StatusEditScheduler } from "../download/status-edit-scheduler.js";
@@ -34,6 +38,12 @@ import {
   getSuggestedFileName,
   type DownloadableMessage,
 } from "../telegram/telegram-message.js";
+
+export type DownloadHandleOptions = {
+  /** Active OTEL context from the Telegram update (for fire-and-forget downloads). */
+  parentContext?: OtelContext;
+  onAuthSkipped?: () => void;
+};
 
 export class DownloadHandlers {
   private readonly duplicateChoices = new DuplicateChoicePending();
@@ -54,15 +64,39 @@ export class DownloadHandlers {
     message: DownloadableMessage,
     chatId: number,
     reply: ReplyFn,
+    options: DownloadHandleOptions = {},
   ): Promise<void> {
     if (!isAllowedUser(this.settings, fromUserId)) {
-      this.logger.warn(`Ignored message ${message.message_id} from unauthorized user ${fromUserId ?? "unknown"}.`);
+      options.onAuthSkipped?.();
+      this.logger.warn("[download] ignored unauthorized message", {
+        component: "download",
+        handler: "auth",
+        result: "skipped",
+        step: "auth_reject",
+        bot_message_id: message.message_id,
+      });
       return;
     }
 
     const fileName = getDisplayFileName(message);
+    const mediaKind = "video" in message ? "video" : "document";
+    const caption = getCaption(message);
+
+    this.logger.info("[download] request accepted", {
+      component: "download",
+      handler: "download",
+      step: "accepted",
+      media_kind: mediaKind,
+      file_name: fileName,
+      bot_message_id: message.message_id,
+      ...(caption ? { user_text: truncateForLog(caption) } : {}),
+    });
+
     const statusMessage = await safeReply(reply, this.logger, `Download started: ${fileName}`);
-    void this.downloadAndNotify(fromUserId, message, chatId, reply, statusMessage?.message_id);
+    const parentContext = options.parentContext ?? context.active();
+    void context.with(parentContext, () =>
+      this.downloadAndNotify(fromUserId, message, chatId, reply, statusMessage?.message_id, options),
+    );
   }
 
   async downloadAndNotify(
@@ -71,125 +105,230 @@ export class DownloadHandlers {
     chatId: number,
     reply: ReplyFn,
     statusMessageId: number | undefined,
+    options: DownloadHandleOptions = {},
   ): Promise<void> {
     const fileName = getDisplayFileName(message);
-    let deleteToken: string | undefined;
-    const abortController = new AbortController();
-    const progressReporter = createProgressReporter({
-      scheduler: this.statusScheduler,
-      chatId,
-      fileName,
-      logger: this.logger,
-      messageId: message.message_id,
-      statusMessageId,
-      progressMinIntervalMs: this.progressMinIntervalMs,
-      progressPercentStep: this.progressPercentStep,
-      getStatusMarkup: () => {
-        if (!deleteToken || this.deleteButtons.getCached(deleteToken)?.deletedAt) {
-          return undefined;
-        }
+    const mediaKind = ("video" in message ? "video" : "document") as "video" | "document";
+    const tracer = trace.getTracer("crea-video-downloader");
+    const started = process.hrtime.bigint();
 
-        return createDeleteButtonReplyMarkup(deleteToken);
-      },
-      isDeleted: () => (deleteToken ? this.deleteButtons.getCached(deleteToken)?.deletedAt !== undefined : false),
-    });
+    await tracer.startActiveSpan("download.run", async (span) => {
+      span.setAttribute("handler", "download");
+      span.setAttribute("media.kind", mediaKind);
+      span.setAttribute("bot.message_id", message.message_id);
 
-    try {
-      const suggestedFileName = getSuggestedFileName(message);
-      const request = {
-        botMessageId: message.message_id,
-        telegramUserId: fromUserId,
-        mediaKind: ("video" in message ? "video" : "document") as "video" | "document",
-        suggestedFileName,
-        receivedAt: message.date,
-        caption: getCaption(message),
-        signal: abortController.signal,
-        onOutputPath: async (outputPath: string) => {
-          if (!statusMessageId) {
-            return;
+      let deleteToken: string | undefined;
+      const abortController = new AbortController();
+      const progressReporter = createProgressReporter({
+        scheduler: this.statusScheduler,
+        chatId,
+        fileName,
+        logger: this.logger,
+        messageId: message.message_id,
+        statusMessageId,
+        progressMinIntervalMs: this.progressMinIntervalMs,
+        progressPercentStep: this.progressPercentStep,
+        getStatusMarkup: () => {
+          if (!deleteToken || this.deleteButtons.getCached(deleteToken)?.deletedAt) {
+            return undefined;
           }
 
-          const record = await this.deleteButtons.upsertForStatus({
-            chatId,
-            messageId: statusMessageId,
-            filePath: outputPath,
-            originalText: progressReporter.getLastMessage(),
-          });
-          deleteToken = record.token;
-          this.activeDownloads.register(record.token, abortController);
-          await progressReporter.refresh();
+          return createDeleteButtonReplyMarkup(deleteToken);
         },
-        onProgress: progressReporter.report,
-      };
+        isDeleted: () => (deleteToken ? this.deleteButtons.getCached(deleteToken)?.deletedAt !== undefined : false),
+      });
 
-      const prepared = await this.downloader.prepareDownload(request);
-      let choice: DuplicateChoice | undefined;
+      try {
+        const suggestedFileName = getSuggestedFileName(message);
+        const caption = getCaption(message);
+        const request = {
+          botMessageId: message.message_id,
+          telegramUserId: fromUserId,
+          mediaKind,
+          suggestedFileName,
+          receivedAt: message.date,
+          caption,
+          signal: abortController.signal,
+          onOutputPath: async (outputPath: string) => {
+            if (!statusMessageId) {
+              return;
+            }
 
-      if (prepared.existingPath) {
-        if (!statusMessageId) {
-          this.logger.warn(
-            `Duplicate found for message ${message.message_id} but status message is missing; keeping both.`,
-          );
-          choice = "keep";
-        } else {
-          const pending = this.duplicateChoices.create({
-            chatId,
-            messageId: statusMessageId,
-            existingPath: prepared.existingPath,
-          });
+            const record = await this.deleteButtons.upsertForStatus({
+              chatId,
+              messageId: statusMessageId,
+              filePath: outputPath,
+              originalText: progressReporter.getLastMessage(),
+            });
+            deleteToken = record.token;
+            this.activeDownloads.register(record.token, abortController);
+            await progressReporter.refresh();
+          },
+          onProgress: progressReporter.report,
+        };
 
-          await this.statusScheduler.scheduleTerminal(
-            chatId,
-            statusMessageId,
-            createDuplicatePromptMessage(prepared.existingPath),
-            createDuplicateChoiceReplyMarkup(pending.token),
-            reply,
-          );
+        this.logger.info("[download] prepare started", {
+          component: "download",
+          handler: "download",
+          step: "prepare",
+          media_kind: mediaKind,
+          file_name: fileName,
+          bot_message_id: message.message_id,
+          ...(caption ? { user_text: truncateForLog(caption) } : {}),
+        });
 
-          choice = await pending.choice;
+        const prepared = await this.downloader.prepareDownload(request);
+        let choice: DuplicateChoice | undefined;
 
-          if (choice === "skip") {
+        this.logger.info("[download] prepare finished", {
+          component: "download",
+          handler: "download",
+          step: "prepared",
+          media_kind: mediaKind,
+          file_name: fileName,
+          bot_message_id: message.message_id,
+          metadata_kind: prepared.metadata.kind,
+          has_duplicate: Boolean(prepared.existingPath),
+          output_name: path.basename(prepared.canonicalPath),
+        });
+
+        if (prepared.existingPath) {
+          if (!statusMessageId) {
+            this.logger.warn("[download] duplicate found without status message; keeping both", {
+              component: "download",
+              handler: "download",
+              step: "duplicate",
+              bot_message_id: message.message_id,
+              result: "keep",
+            });
+            choice = "keep";
+          } else {
+            const pending = this.duplicateChoices.create({
+              chatId,
+              messageId: statusMessageId,
+              existingPath: prepared.existingPath,
+            });
+
+            this.logger.info("[download] waiting for duplicate choice", {
+              component: "download",
+              handler: "download",
+              step: "duplicate_prompt",
+              bot_message_id: message.message_id,
+              existing_name: path.basename(prepared.existingPath),
+            });
+
             await this.statusScheduler.scheduleTerminal(
               chatId,
               statusMessageId,
-              createDuplicateSkippedMessage(fileName, prepared.existingPath),
-              undefined,
+              createDuplicatePromptMessage(prepared.existingPath),
+              createDuplicateChoiceReplyMarkup(pending.token),
               reply,
             );
-            return;
+
+            choice = await pending.choice;
+
+            this.logger.info("[download] duplicate choice received", {
+              component: "download",
+              handler: "download",
+              step: "duplicate_choice",
+              bot_message_id: message.message_id,
+              result: choice,
+            });
+
+            if (choice === "skip") {
+              await this.statusScheduler.scheduleTerminal(
+                chatId,
+                statusMessageId,
+                createDuplicateSkippedMessage(fileName, prepared.existingPath),
+                undefined,
+                reply,
+              );
+              span.setAttribute("result", "skipped");
+              return;
+            }
           }
         }
-      }
 
-      if (statusMessageId !== undefined && this.downloader.isMediaDownloadBusy(fromUserId)) {
-        await this.statusScheduler.scheduleTerminal(
-          chatId,
-          statusMessageId,
-          `Queued: ${fileName}`,
-          undefined,
-          reply,
-        );
-      }
+        if (statusMessageId !== undefined && this.downloader.isMediaDownloadBusy(fromUserId)) {
+          this.logger.info("[download] queued behind in-flight media download", {
+            component: "download",
+            handler: "download",
+            step: "queued",
+            bot_message_id: message.message_id,
+            file_name: fileName,
+          });
+          await this.statusScheduler.scheduleTerminal(
+            chatId,
+            statusMessageId,
+            `Queued: ${fileName}`,
+            undefined,
+            reply,
+          );
+        }
 
-      const result = await this.downloader.downloadPrepared(prepared, request, choice);
+        this.logger.info("[download] media transfer started", {
+          component: "download",
+          handler: "download",
+          step: "transfer",
+          media_kind: mediaKind,
+          file_name: fileName,
+          bot_message_id: message.message_id,
+          ...(choice ? { duplicate_choice: choice } : {}),
+        });
 
-      this.logger.info(`Saved Telegram media to ${result.outputPath}`, {
-        bytes: result.bytes,
-      });
-      await progressReporter.complete(result, reply);
-    } catch (error) {
-      if (isDownloadCanceled(error)) {
-        this.logger.info(`Canceled Telegram download for message ${message.message_id}.`);
-        return;
-      }
+        const result = await this.downloader.downloadPrepared(prepared, request, choice);
+        const durationMs = Math.round(Number(process.hrtime.bigint() - started) / 1e6);
 
-      this.logger.error(`Failed to download Telegram message ${message.message_id}.`, error);
-      await progressReporter.fail(reply);
-    } finally {
-      if (deleteToken) {
-        this.activeDownloads.clear(deleteToken, abortController);
+        this.logger.info("[download] saved", {
+          component: "download",
+          handler: "download",
+          step: "saved",
+          result: "success",
+          media_kind: mediaKind,
+          file_name: fileName,
+          bot_message_id: message.message_id,
+          output_name: path.basename(result.outputPath),
+          bytes: result.bytes,
+          duration_ms: durationMs,
+        });
+        span.setAttribute("result", "success");
+        await progressReporter.complete(result, reply);
+      } catch (error) {
+        if (isDownloadCanceled(error)) {
+          this.logger.info("[download] canceled", {
+            component: "download",
+            handler: "download",
+            step: "canceled",
+            result: "skipped",
+            bot_message_id: message.message_id,
+            file_name: fileName,
+          });
+          span.setAttribute("result", "canceled");
+          return;
+        }
+
+        if (error instanceof Error) {
+          span.recordException(error);
+        }
+        span.setStatus({ code: 2, message: "download_failed" });
+        span.setAttribute("result", "error");
+        this.logger.exception("[download] failed", error, {
+          component: "download",
+          handler: "download",
+          step: "failed",
+          result: "error",
+          bot_message_id: message.message_id,
+          file_name: fileName,
+          media_kind: mediaKind,
+        });
+        await progressReporter.fail(reply);
+      } finally {
+        if (deleteToken) {
+          this.activeDownloads.clear(deleteToken, abortController);
+        }
+        span.end();
       }
-    }
+    });
   }
 
   async handleDuplicateChoiceButton(ctx: Context): Promise<void> {
@@ -213,6 +352,13 @@ export class DownloadHandlers {
       await answerCallback(ctx, this.logger, "This choice expired.");
       return;
     }
+
+    this.logger.info("[download] duplicate choice button", {
+      component: "download",
+      handler: "duplicate_choice",
+      step: "callback",
+      result: callback.action,
+    });
 
     await answerCallback(
       ctx,

@@ -7,8 +7,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY .npmrc package.json package-lock.json ./
+RUN --mount=type=secret,id=NODE_AUTH_TOKEN \
+  NODE_AUTH_TOKEN="$(cat /run/secrets/NODE_AUTH_TOKEN)" npm ci
 
 COPY tsconfig.json ./
 COPY src ./src

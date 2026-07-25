@@ -67,11 +67,14 @@ Production runs in Docker. Bootstrap the server once, then deploy only via git:
 For GramJS sessions, run login from a full checkout (see [docs/docker.md](docs/docker.md)):
 
 ```sh
+export NODE_AUTH_TOKEN=ghp_...   # classic PAT or fine-grained with packages:read
 npm install
 cp config/settings.example.json config/settings.json
 npm run validate:settings
 npm run login -- --user-id <your_telegram_user_id>
 ```
+
+`@crearec/otel` is installed from GitHub Packages. The committed `.npmrc` maps `@crearec` to `https://npm.pkg.github.com`; set `NODE_AUTH_TOKEN` for local `npm ci` / `npm install`.
 
 Copy the updated `settings.json` to the server deploy directory and restart the container.
 

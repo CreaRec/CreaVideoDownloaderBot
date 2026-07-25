@@ -99,7 +99,11 @@ export class TmdbResolver {
 
       return undefined;
     } catch (error) {
-      this.logger.warn("TMDB metadata resolution failed.", error);
+      this.logger.exception("[tmdb] metadata resolution failed", error, {
+        component: "tmdb",
+        step: "resolve",
+        error_type: "tmdb",
+      });
       return undefined;
     }
   }
@@ -135,7 +139,11 @@ export class TmdbResolver {
         },
       };
     } catch (error) {
-      this.logger.warn("TMDB TV series resolution failed.", error);
+      this.logger.exception("[tmdb] TV series resolution failed", error, {
+        component: "tmdb",
+        step: "resolve_tv_series",
+        error_type: "tmdb",
+      });
       return undefined;
     }
   }
@@ -152,7 +160,13 @@ export class TmdbResolver {
 
       return episodeDetails.name || undefined;
     } catch {
-      this.logger.debug(`TMDB episode lookup failed for show ${tmdbShowId} s${season}e${episode}.`);
+      this.logger.debug("[tmdb] episode lookup failed", {
+        component: "tmdb",
+        step: "episode_lookup",
+        tmdb_id: tmdbShowId,
+        season,
+        episode,
+      });
       return undefined;
     }
   }
@@ -181,7 +195,11 @@ export class TmdbResolver {
 
       return rankTvCandidates(searchResults.results, input.title, input.year).slice(0, limit);
     } catch (error) {
-      this.logger.warn("TMDB candidate search failed.", error);
+      this.logger.exception("[tmdb] candidate search failed", error, {
+        component: "tmdb",
+        step: "search",
+        error_type: "tmdb",
+      });
       return [];
     }
   }
@@ -214,7 +232,12 @@ export class TmdbResolver {
 
       return [...movies, ...shows].sort((left, right) => right.score - left.score);
     } catch (error) {
-      this.logger.warn(`TMDB IMDb lookup failed for ${imdbId}.`, error);
+      this.logger.exception("[tmdb] IMDb lookup failed", error, {
+        component: "tmdb",
+        step: "imdb_lookup",
+        error_type: "tmdb",
+        imdb_id: imdbId,
+      });
       return [];
     }
   }
@@ -256,7 +279,13 @@ export class TmdbResolver {
         },
       };
     } catch (error) {
-      this.logger.warn(`TMDB candidate resolution failed for ${kind} ${tmdbId}.`, error);
+      this.logger.exception("[tmdb] candidate resolution failed", error, {
+        component: "tmdb",
+        step: "resolve_candidate",
+        error_type: "tmdb",
+        metadata_kind: kind,
+        tmdb_id: tmdbId,
+      });
       return undefined;
     }
   }

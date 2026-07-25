@@ -79,7 +79,11 @@ export async function safeReply(reply: ReplyFn, logger: Logger, message: string)
   try {
     return await reply(message);
   } catch (error) {
-    logger.warn("Failed to send Telegram reply.", error);
+    logger.exception("[telegram] failed to send reply", error, {
+      component: "telegram",
+      step: "reply",
+      result: "error",
+    });
     return undefined;
   }
 }
@@ -88,6 +92,10 @@ export async function answerCallback(ctx: Context, logger: Logger, message: stri
   try {
     await ctx.answerCbQuery(message);
   } catch (error) {
-    logger.warn("Failed to answer Telegram callback query.", error);
+    logger.exception("[telegram] failed to answer callback", error, {
+      component: "telegram",
+      step: "callback_answer",
+      result: "error",
+    });
   }
 }

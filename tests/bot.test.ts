@@ -262,8 +262,8 @@ test("progress reporter logs edit and standalone reply failures", async () => {
     throw new Error("reply failed");
   });
 
-  assert.ok(logger.entries.some((entry) => entry.message.includes("Failed to edit Telegram progress message")));
-  assert.equal(logger.entries.filter((entry) => entry.message.includes("Failed to send Telegram reply")).length, 1);
+  assert.ok(logger.entries.some((entry) => entry.message.includes("failed to edit progress message")));
+  assert.equal(logger.entries.filter((entry) => entry.message.includes("failed to send reply")).length, 1);
 });
 
 test("confirming delete aborts the active download and suppresses failed status", async () => {
@@ -333,15 +333,19 @@ test("confirming delete aborts the active download and suppresses failed status"
     };
     const downloadAndNotify = (
       service as unknown as {
-        downloadAndNotify: (
-          fromUserId: number,
-          message: unknown,
-          chatId: number,
-          reply: (message: string) => Promise<{ message_id?: number }>,
-          statusMessageId: number,
-        ) => Promise<void>;
+        downloadHandlers: {
+          downloadAndNotify: (
+            fromUserId: number,
+            message: unknown,
+            chatId: number,
+            reply: (message: string) => Promise<{ message_id?: number }>,
+            statusMessageId: number,
+          ) => Promise<void>;
+        };
       }
-    ).downloadAndNotify.bind(service);
+    ).downloadHandlers.downloadAndNotify.bind(
+      (service as unknown as { downloadHandlers: object }).downloadHandlers,
+    );
     const handleDeleteButton = (
       service as unknown as {
         handleDeleteButton: (ctx: unknown) => Promise<void>;
@@ -721,7 +725,7 @@ test("/restart command replies and requests service restart for authorized users
 
   assert.deepEqual(replies, ["Restarting service..."]);
   assert.equal(restartCount, 1);
-  assert.ok(logger.entries.some((entry) => entry.level === "warn" && entry.message.includes("Restart requested")));
+  assert.ok(logger.entries.some((entry) => entry.level === "warn" && entry.message.includes("restart requested")));
 });
 
 test("file tree confirmation callback deletes the selected file and refreshes the parent directory", async () => {

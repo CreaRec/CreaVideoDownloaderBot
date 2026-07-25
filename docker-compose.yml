@@ -5,7 +5,18 @@ services:
     environment:
       NODE_ENV: production
       SETTINGS_PATH: /app/config/settings.json
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://alloy:4318}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-crea-video-downloader}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-bots}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
     volumes:
       - ./config/settings.json:/app/config/settings.json
       - ./data:/app/data
       - ${DOWNLOAD_DIR}:/downloads
+    networks:
+      - default
+      - lgtm
+
+networks:
+  lgtm:
+    external: true

@@ -58,13 +58,24 @@ export class MediaClassifier {
       const parsed = modelResponseSchema.safeParse(JSON.parse(response));
 
       if (!parsed.success) {
-        this.logger.warn("OpenAI media classification response did not match the expected schema.", parsed.error.issues);
+        this.logger.warn("[classify] invalid OpenAI response schema", {
+          component: "classify",
+          handler: "download",
+          step: "classify",
+          error_type: "openai",
+          issue_count: parsed.error.issues.length,
+        });
         return { kind: "undefined", reason: "Classifier returned invalid JSON shape." };
       }
 
       return normalizeClassification(parsed.data);
     } catch (error) {
-      this.logger.warn("OpenAI media classification failed; saving as undefined.", error);
+      this.logger.exception("[classify] OpenAI request failed", error, {
+        component: "classify",
+        handler: "download",
+        step: "classify",
+        error_type: "openai",
+      });
       return { kind: "undefined", reason: "Classifier request failed." };
     }
   }

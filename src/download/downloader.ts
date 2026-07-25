@@ -3,6 +3,7 @@ import path from "node:path";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import type { Logger } from "../config/logger.js";
+import { truncateForLog } from "../config/logger.js";
 import { deleteDownloadedFile } from "../files/delete-buttons.js";
 import { findDuplicateMedia } from "../metadata/duplicate-scanner.js";
 import {
@@ -99,7 +100,11 @@ export class TelegramDownloader {
       await client.connect();
       const botEntity = await client.getEntity(`@${this.settings.telegram.botUsername}`);
       this.userClients.set(userId, { client, botEntity });
-      this.logger.info(`GramJS client connected for user ${userId}.`);
+      this.logger.info("[download] GramJS client connected", {
+        component: "download",
+        step: "gramjs_connect",
+        has_session: true,
+      });
     }
   }
 
@@ -112,7 +117,10 @@ export class TelegramDownloader {
     this.userClients.clear();
     this.mediaDownloadTails.clear();
     this.mediaDownloadInFlight.clear();
-    this.logger.info("GramJS clients disconnected.");
+    this.logger.info("[download] GramJS clients disconnected", {
+      component: "download",
+      step: "gramjs_disconnect",
+    });
   }
 
   isMediaDownloadBusy(telegramUserId: number): boolean {
@@ -161,7 +169,15 @@ export class TelegramDownloader {
       await deleteDownloadedFile(prepared.existingPath, this.settings.download.directory);
     }
 
-    this.logger.info(`Downloading Telegram message ${request.botMessageId} to ${outputPath}`);
+    this.logger.info("[download] transferring media", {
+      component: "download",
+      handler: "download",
+      step: "transfer",
+      bot_message_id: request.botMessageId,
+      media_kind: request.mediaKind,
+      output_name: path.basename(outputPath),
+      ...(choice ? { duplicate_choice: choice } : {}),
+    });
 
     await this.withExclusiveMediaDownload(request.telegramUserId, async () => {
       throwIfDownloadCanceled(request.signal);
@@ -214,9 +230,13 @@ export class TelegramDownloader {
           throw error;
         }
 
-        this.logger.warn(
-          `File reference expired for Telegram message ${request.botMessageId}; refreshing and retrying.`,
-        );
+        this.logger.warn("[download] file reference expired; retrying", {
+          component: "download",
+          handler: "download",
+          step: "file_reference_retry",
+          bot_message_id: request.botMessageId,
+          attempt,
+        });
       }
     }
   }
@@ -296,7 +316,17 @@ export class TelegramDownloader {
       extension,
     );
 
-    this.logger.info(`Classified Telegram message ${request.botMessageId} as ${metadata.kind}.`, metadata);
+    this.logger.info("[download] classified", {
+      component: "download",
+      handler: "download",
+      step: "classify",
+      bot_message_id: request.botMessageId,
+      metadata_kind: metadata.kind,
+      ...(metadata.kind !== "undefined" && "title" in metadata ? { title: metadata.title } : {}),
+      ...(request.caption ? { user_text: truncateForLog(request.caption) } : {}),
+      file_name: request.suggestedFileName,
+      output_name: path.basename(canonicalPath),
+    });
 
     return { metadata, canonicalPath };
   }
@@ -327,8 +357,12 @@ export class TelegramDownloader {
       return directMessage;
     }
 
-    this.logger.debug(`Telegram message ${request.botMessageId} was not downloadable by direct ID lookup.`, {
-      message: summarizeGramMessage(directMessage),
+    this.logger.debug("[download] direct message lookup miss", {
+      component: "download",
+      handler: "download",
+      step: "lookup_miss",
+      bot_message_id: request.botMessageId,
+      media: summarizeGramMessage(directMessage)?.media as string | undefined,
     });
 
     return this.findRecentOutgoingBotMedia(userClient, request);
@@ -374,8 +408,13 @@ export class TelegramDownloader {
     }
 
     if (fallback) {
-      this.logger.debug(`Using recent outgoing Telegram media ${fallback.id} for bot message ${request.botMessageId}.`, {
-        message: summarizeGramMessage(fallback),
+      this.logger.debug("[download] using recent outgoing media fallback", {
+        component: "download",
+        handler: "download",
+        step: "lookup_fallback",
+        bot_message_id: request.botMessageId,
+        gram_message_id: fallback.id,
+        media: summarizeGramMessage(fallback)?.media as string | undefined,
       });
     }
 

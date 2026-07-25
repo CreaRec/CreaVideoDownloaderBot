@@ -82,6 +82,16 @@ export function createLoggerSpy(): LoggerSpy {
     error(message: string, details?: unknown): void {
       entries.push({ level: "error", message, details });
     },
+    exception(message: string, err: unknown, details?: unknown): void {
+      entries.push({
+        level: "error",
+        message,
+        details: {
+          ...(typeof details === "object" && details !== null ? details : { details }),
+          error_message: err instanceof Error ? err.message : String(err),
+        },
+      });
+    },
   } as LoggerSpy;
 }
 

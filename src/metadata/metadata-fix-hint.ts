@@ -58,13 +58,24 @@ export class MetadataFixHintParser {
       const parsed = modelResponseSchema.safeParse(JSON.parse(response));
 
       if (!parsed.success) {
-        this.logger.warn("OpenAI metadata fix hint response did not match the expected schema.", parsed.error.issues);
+        this.logger.warn("[metadata_fix] invalid OpenAI hint schema", {
+          component: "metadata_fix",
+          handler: "metadata_fix",
+          step: "hint_parse",
+          error_type: "openai",
+          issue_count: parsed.error.issues.length,
+        });
         return { kind: "undefined", reason: "Hint parser returned invalid JSON shape." };
       }
 
       return normalizeHint(parsed.data);
     } catch (error) {
-      this.logger.warn("OpenAI metadata fix hint parsing failed.", error);
+      this.logger.exception("[metadata_fix] OpenAI hint parse failed", error, {
+        component: "metadata_fix",
+        handler: "metadata_fix",
+        step: "hint_parse",
+        error_type: "openai",
+      });
       return { kind: "undefined", reason: "Hint parser request failed." };
     }
   }

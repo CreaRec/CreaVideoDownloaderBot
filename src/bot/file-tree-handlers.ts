@@ -41,7 +41,11 @@ export class FileTreeHandlers {
       try {
         await ctx.telegram.deleteMessage(chatId, existingMessageId);
       } catch (error) {
-        this.logger.warn("Could not delete previous file tree message.", error);
+        this.logger.exception("[files] could not delete previous file tree message", error, {
+          component: "files",
+          handler: "file_tree",
+          step: "delete_previous",
+        });
       }
 
       this.fileTreeMessageIdByChat.delete(chatId);
@@ -155,7 +159,12 @@ export class FileTreeHandlers {
       );
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      this.logger.warn("Failed to handle file tree action.", error);
+      this.logger.exception("[files] failed to handle file tree action", error, {
+        component: "files",
+        handler: "file_tree",
+        step: "action",
+        result: "error",
+      });
       await answerCallback(ctx, this.logger, reason);
     }
   }

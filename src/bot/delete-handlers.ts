@@ -1,4 +1,5 @@
 import type { Context } from "telegraf";
+import path from "node:path";
 import {
   createDeleteButtonReplyMarkup,
   createDeleteConfirmationReplyMarkup,
@@ -95,7 +96,13 @@ export class DeleteHandlers {
       await answerCallback(ctx, this.logger, outcome === "missing" ? "File was already missing." : "File deleted.");
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to delete downloaded file ${record.filePath}.`, error);
+      this.logger.exception("[delete] failed to delete file", error, {
+        component: "delete",
+        handler: "delete",
+        step: "delete_file",
+        result: "error",
+        file_name: path.basename(record.filePath),
+      });
       await ctx.telegram.editMessageText(
         record.chatId,
         record.messageId,

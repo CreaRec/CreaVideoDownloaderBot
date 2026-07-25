@@ -83,7 +83,7 @@ test("status scheduler falls back to reply when terminal edits keep failing", as
   });
 
   assert.deepEqual(replies, ["Saved movie.mp4"]);
-  assert.equal(logger.entries.filter((entry) => entry.message.includes("Failed to edit Telegram progress message")).length, 2);
+  assert.equal(logger.entries.filter((entry) => entry.message.includes("failed to edit progress message")).length, 2);
 });
 
 test("status scheduler prioritizes terminal edits ahead of pending progress", async () => {

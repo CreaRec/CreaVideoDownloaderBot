@@ -168,8 +168,10 @@ test("redactSettings masks secrets while preserving non-secret values", () => {
   assert.equal((redacted.tmdb as Record<string, unknown>).apiKey, "***");
 });
 
-test("Logger filters below the configured level and passes details through", () => {
+test("Logger filters below the configured level and emits structured console output", () => {
   const log = mock.method(console, "log", () => {});
+  const warn = mock.method(console, "warn", () => {});
+  const error = mock.method(console, "error", () => {});
   const logger = new Logger("warn");
   const details = { reason: "boom" };
 
@@ -178,8 +180,10 @@ test("Logger filters below the configured level and passes details through", () 
   logger.warn("warn", details);
   logger.error("error");
 
-  assert.equal(log.mock.callCount(), 2);
-  assert.match(log.mock.calls[0].arguments[0] as string, /WARN warn$/);
-  assert.equal(log.mock.calls[0].arguments[1], details);
-  assert.match(log.mock.calls[1].arguments[0] as string, /ERROR error$/);
+  assert.equal(log.mock.callCount(), 0);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.equal(error.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments[0]), /warn/);
+  assert.match(String(warn.mock.calls[0].arguments[0]), /reason/);
+  assert.match(String(error.mock.calls[0].arguments[0]), /error/);
 });

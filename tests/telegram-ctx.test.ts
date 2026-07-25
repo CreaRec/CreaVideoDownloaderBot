@@ -75,7 +75,7 @@ test("safeReply returns the reply result and swallows failures", async () => {
     "hi",
   );
   assert.equal(failure, undefined);
-  assert.equal(logger.entries.some((entry) => entry.level === "warn" && entry.message.includes("Failed to send")), true);
+  assert.equal(logger.entries.some((entry) => entry.level === "error" && entry.message.includes("failed to send")), true);
 });
 
 test("answerCallback answers callbacks and swallows failures", async () => {
@@ -103,7 +103,7 @@ test("answerCallback answers callbacks and swallows failures", async () => {
     "ok",
   );
   assert.equal(
-    logger.entries.some((entry) => entry.level === "warn" && entry.message.includes("Failed to answer")),
+    logger.entries.some((entry) => entry.level === "error" && entry.message.includes("failed to answer")),
     true,
   );
 });

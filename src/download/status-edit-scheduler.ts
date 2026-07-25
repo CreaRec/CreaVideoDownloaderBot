@@ -177,7 +177,10 @@ export class StatusEditScheduler {
     try {
       await this.executeEdit(job.chatId, job.messageId, job.text, job.markup);
     } catch (error) {
-      this.logger.warn("Failed to edit Telegram progress message.", error);
+      this.logger.exception("[telegram] failed to edit progress message", error, {
+        component: "telegram",
+        step: "progress_edit",
+      });
     }
   }
 
@@ -188,7 +191,11 @@ export class StatusEditScheduler {
         job.resolve();
         return;
       } catch (error) {
-        this.logger.warn("Failed to edit Telegram progress message.", error);
+        this.logger.exception("[telegram] failed to edit progress message", error, {
+          component: "telegram",
+          step: "terminal_edit",
+          attempt,
+        });
 
         if (attempt >= this.maxTerminalRetries - 1) {
           break;
@@ -211,7 +218,10 @@ export class StatusEditScheduler {
         job.resolve();
         return;
       } catch (error) {
-        this.logger.warn("Failed to send Telegram reply.", error);
+        this.logger.exception("[telegram] failed to send reply", error, {
+          component: "telegram",
+          step: "terminal_reply",
+        });
       }
     }
 

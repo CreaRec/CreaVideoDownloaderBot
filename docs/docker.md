@@ -50,7 +50,13 @@ Create `.env` from [`.env.example`](../.env.example):
 DOWNLOAD_DIR=/mnt/synology/video
 IMAGE=ghcr.io/crearec/crea-video-downloader
 IMAGE_TAG=main
+OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+OTEL_SERVICE_NAME=crea-video-downloader
+OTEL_SERVICE_NAMESPACE=bots
+DEPLOY_ENV=production
 ```
+
+OpenTelemetry goes to CreaGrafana Alloy on the external Docker network `lgtm` (`OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318`). Ensure `docker network create lgtm` exists on the host (CreaGrafana compose also uses it). Follow the [telemetry contract](https://github.com/CreaRec/CreaGrafana/blob/main/docs/telemetry-contract.md).
 
 Place your existing `config/settings.json` (with Telegram credentials and GramJS sessions). Set:
 
