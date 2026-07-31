@@ -34,6 +34,26 @@ export function canMoveRelativePathToKids(relativePath: string): boolean {
   return LIBRARY_SOURCE_ROOT_NAMES.has(topLevelName);
 }
 
+/**
+ * Library item to move for a downloaded file path:
+ * Movies/Film/... → Movies/Film, TV Shows/Show/... → TV Shows/Show, Undefined/file → Undefined/file.
+ */
+export function resolveLibraryItemRelativePath(relativePath: string): string | undefined {
+  const normalizedPath = normalizeRelativePath(relativePath);
+
+  if (!canMoveRelativePathToKids(normalizedPath)) {
+    return undefined;
+  }
+
+  const parts = normalizedPath.split(path.sep);
+
+  if (parts.length < 2) {
+    return undefined;
+  }
+
+  return path.join(parts[0]!, parts[1]!);
+}
+
 export function buildKidsTargetRelativePath(sourceRelativePath: string): string {
   const normalizedSource = normalizeRelativePath(sourceRelativePath);
 

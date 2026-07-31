@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { ActiveDownloads } from "../src/download/active-downloads.js";
 import { DownloadHandlers } from "../src/bot/download-handlers.js";
 import { DeleteHandlers } from "../src/bot/delete-handlers.js";
 import {
-  createDeleteButtonReplyMarkup,
   createDeleteConfirmationReplyMarkup,
+  createMoveToKidsConfirmationReplyMarkup,
+  createStatusActionReplyMarkup,
   DeleteButtonState,
 } from "../src/files/delete-buttons.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
@@ -128,7 +129,8 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<voi
 
 test("DeleteHandlers ask shows confirmation markup", async () => {
   await withTempDir(async (tempDir) => {
-    const filePath = path.join(tempDir, "movie.mp4");
+    const filePath = path.join(tempDir, "Movies", "Demo Movie", "movie.mp4");
+    await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, "video", "utf8");
     const state = DeleteButtonState.forStateDirectory(tempDir);
     const record = await state.upsertForStatus({
@@ -169,9 +171,56 @@ test("DeleteHandlers ask shows confirmation markup", async () => {
   });
 });
 
-test("DeleteHandlers cancel restores the delete button", async () => {
+test("DeleteHandlers ask-move shows Move to Kids confirmation", async () => {
   await withTempDir(async (tempDir) => {
-    const filePath = path.join(tempDir, "movie.mp4");
+    const filePath = path.join(tempDir, "Movies", "Demo Movie", "movie.mp4");
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, "video", "utf8");
+    const state = DeleteButtonState.forStateDirectory(tempDir);
+    const record = await state.upsertForStatus({
+      chatId: 1234,
+      messageId: 99,
+      filePath,
+      originalText: "Saved movie.mp4",
+    });
+    const edits: Array<{ text: string; extra?: unknown }> = [];
+    const answers: string[] = [];
+    const handlers = new DeleteHandlers(createSettings({ download: { directory: tempDir } }), createLoggerSpy(), state, new ActiveDownloads());
+
+    await handlers.handleDeleteButton({
+      from: { id: 1234 },
+      callbackQuery: {
+        data: `file-delete:ask-move:${record.token}`,
+        message: { message_id: 99, chat: { id: 1234 }, text: "Saved movie.mp4" },
+      },
+      telegram: {
+        editMessageText: async (
+          _chatId: number,
+          _messageId: number,
+          _inline: undefined,
+          text: string,
+          extra?: unknown,
+        ) => {
+          edits.push({ text, extra });
+        },
+      },
+      answerCbQuery: async (message: string) => {
+        answers.push(message);
+      },
+    } as never);
+
+    assert.match(edits[0]?.text ?? "", /Move this to Kids\?/);
+    assert.match(edits[0]?.text ?? "", /Movies\/Demo Movie/);
+    assert.match(edits[0]?.text ?? "", /Kids\/Movies\/Demo Movie/);
+    assert.deepEqual(edits[0]?.extra, createMoveToKidsConfirmationReplyMarkup(record.token));
+    assert.deepEqual(answers, ["Confirm move to Kids."]);
+  });
+});
+
+test("DeleteHandlers cancel restores delete and Move to Kids buttons", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "Movies", "Demo Movie", "movie.mp4");
+    await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, "video", "utf8");
     const state = DeleteButtonState.forStateDirectory(tempDir);
     const record = await state.upsertForStatus({
@@ -191,7 +240,7 @@ test("DeleteHandlers cancel restores the delete button", async () => {
         message: {
           message_id: 99,
           chat: { id: 1234 },
-          text: "Saved movie.mp4\n\nDelete this downloaded file?",
+          text: "Saved movie.mp4\n\nMove this to Kids?\nMovies/Demo Movie\n→\nKids/Movies/Demo Movie",
         },
       },
       telegram: {
@@ -211,8 +260,59 @@ test("DeleteHandlers cancel restores the delete button", async () => {
     } as never);
 
     assert.equal(edits[0]?.text, "Saved movie.mp4");
-    assert.deepEqual(edits[0]?.extra, createDeleteButtonReplyMarkup(record.token));
-    assert.deepEqual(answers, ["Deletion cancelled."]);
+    assert.deepEqual(edits[0]?.extra, createStatusActionReplyMarkup(record.token, filePath, tempDir));
+    assert.deepEqual(answers, ["Cancelled."]);
+  });
+});
+
+test("DeleteHandlers confirm-move moves the movie folder to Kids", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "Movies", "Demo Movie", "movie.mp4");
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, "video", "utf8");
+    const state = DeleteButtonState.forStateDirectory(tempDir);
+    const record = await state.upsertForStatus({
+      chatId: 1234,
+      messageId: 99,
+      filePath,
+      originalText: "Saved movie.mp4",
+    });
+    const edits: Array<{ text: string; extra?: unknown }> = [];
+    const answers: string[] = [];
+    const handlers = new DeleteHandlers(createSettings({ download: { directory: tempDir } }), createLoggerSpy(), state, new ActiveDownloads());
+
+    await handlers.handleDeleteButton({
+      from: { id: 1234 },
+      callbackQuery: {
+        data: `file-delete:confirm-move:${record.token}`,
+        message: {
+          message_id: 99,
+          chat: { id: 1234 },
+          text: "Saved movie.mp4\n\nMove this to Kids?\nMovies/Demo Movie\n→\nKids/Movies/Demo Movie",
+        },
+      },
+      telegram: {
+        editMessageText: async (
+          _chatId: number,
+          _messageId: number,
+          _inline: undefined,
+          text: string,
+          extra?: unknown,
+        ) => {
+          edits.push({ text, extra });
+        },
+      },
+      answerCbQuery: async (message: string) => {
+        answers.push(message);
+      },
+    } as never);
+
+    assert.match(edits[0]?.text ?? "", /Moved to Kids: Movies\/Demo Movie → Kids\/Movies\/Demo Movie/);
+    assert.equal(edits[0]?.extra, undefined);
+    assert.deepEqual(answers, ["Moved to Kids."]);
+    assert.ok((await state.get(record.token))?.deletedAt);
+    await assert.rejects(stat(path.join(tempDir, "Movies", "Demo Movie")));
+    await stat(path.join(tempDir, "Kids", "Movies", "Demo Movie", "movie.mp4"));
   });
 });
 

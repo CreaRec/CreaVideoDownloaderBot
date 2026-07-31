@@ -8,19 +8,29 @@ import {
   createDeleteConfirmationStatusMessage,
   createDeleteFailedStatusMessage,
   createDeletedStatusMessage,
+  createMoveToKidsConfirmationStatusMessage,
   deleteDownloadedFile,
   DeleteButtonState,
   isPathInsideDirectory,
+  moveDownloadedPathToKids,
   parseDeleteCallbackData,
+  stripStatusConfirmationSuffix,
+  createMoveToKidsConfirmationReplyMarkup,
 } from "../src/files/delete-buttons.js";
+import { resolveLibraryItemRelativePath } from "../src/files/kids-move.js";
 import { withTempDir } from "./helpers/test-utils.js";
 
 test("delete button callback data is parsed from generated markup", () => {
-  const deleteMarkup = createDeleteButtonReplyMarkup("abc123");
+  const deleteMarkup = createDeleteButtonReplyMarkup("abc123", { includeMoveToKids: true });
   const confirmMarkup = createDeleteConfirmationReplyMarkup("abc123");
+  const moveConfirmMarkup = createMoveToKidsConfirmationReplyMarkup("abc123");
 
   assert.deepEqual(parseDeleteCallbackData(deleteMarkup.reply_markup.inline_keyboard[0][0].callback_data), {
     action: "ask",
+    token: "abc123",
+  });
+  assert.deepEqual(parseDeleteCallbackData(deleteMarkup.reply_markup.inline_keyboard[1][0].callback_data), {
+    action: "ask-move",
     token: "abc123",
   });
   assert.deepEqual(parseDeleteCallbackData(confirmMarkup.reply_markup.inline_keyboard[0][0].callback_data), {
@@ -29,6 +39,10 @@ test("delete button callback data is parsed from generated markup", () => {
   });
   assert.deepEqual(parseDeleteCallbackData(confirmMarkup.reply_markup.inline_keyboard[0][1].callback_data), {
     action: "cancel",
+    token: "abc123",
+  });
+  assert.deepEqual(parseDeleteCallbackData(moveConfirmMarkup.reply_markup.inline_keyboard[0][0].callback_data), {
+    action: "confirm-move",
     token: "abc123",
   });
   assert.equal(parseDeleteCallbackData("unknown"), undefined);
@@ -43,6 +57,15 @@ test("delete status messages keep the original text readable", () => {
     createDeleteFailedStatusMessage(originalText, "/downloads/movie.mp4", "permission denied"),
     `${originalText}\n\nCould not delete file: /downloads/movie.mp4\npermission denied`,
   );
+  assert.equal(
+    createMoveToKidsConfirmationStatusMessage(originalText, "Movies/Demo Movie", "Kids/Movies/Demo Movie"),
+    `${originalText}\n\nMove this to Kids?\nMovies/Demo Movie\n→\nKids/Movies/Demo Movie`,
+  );
+  assert.equal(
+    stripStatusConfirmationSuffix(`${originalText}\n\nMove this to Kids?\nMovies/Demo Movie\n→\nKids/Movies/Demo Movie`),
+    originalText,
+  );
+  assert.equal(stripStatusConfirmationSuffix(`${originalText}\n\nDelete this downloaded file?`), originalText);
 });
 
 test("delete button state persists records across instances", async () => {
@@ -114,5 +137,44 @@ test("deleteDownloadedFile prunes empty nested directories after deleting the la
     await assert.rejects(stat(path.join(dir, "TV Shows", "Show", "Season 01")));
     await assert.rejects(stat(path.join(dir, "TV Shows", "Show")));
     await stat(path.join(dir, "TV Shows"));
+  });
+});
+
+test("resolveLibraryItemRelativePath picks movie/show folders and Undefined files", () => {
+  assert.equal(resolveLibraryItemRelativePath("Movies/Demo Movie/Demo Movie.mkv"), path.join("Movies", "Demo Movie"));
+  assert.equal(
+    resolveLibraryItemRelativePath("TV Shows/Demo Show/Season 01/ep.mkv"),
+    path.join("TV Shows", "Demo Show"),
+  );
+  assert.equal(resolveLibraryItemRelativePath("Undefined/clip.mp4"), path.join("Undefined", "clip.mp4"));
+  assert.equal(resolveLibraryItemRelativePath("Kids/Movies/Demo"), undefined);
+  assert.equal(resolveLibraryItemRelativePath("Movies"), undefined);
+});
+
+test("moveDownloadedPathToKids moves the library item folder under Kids", async () => {
+  await withTempDir(async (dir) => {
+    const filmDir = path.join(dir, "Movies", "Demo Movie");
+    const outputPath = path.join(filmDir, "Demo Movie.mkv");
+    await mkdir(filmDir, { recursive: true });
+    await writeFile(outputPath, "downloaded", "utf8");
+
+    const result = await moveDownloadedPathToKids(outputPath, dir);
+
+    assert.equal(result.outcome, "moved");
+    assert.equal(result.sourceRelativePath?.split(path.sep).join("/"), "Movies/Demo Movie");
+    assert.equal(result.targetRelativePath?.split(path.sep).join("/"), "Kids/Movies/Demo Movie");
+    await assert.rejects(stat(filmDir));
+    await stat(path.join(dir, "Kids", "Movies", "Demo Movie", "Demo Movie.mkv"));
+
+    const conflict = await moveDownloadedPathToKids(
+      path.join(dir, "Movies", "Demo Movie", "Demo Movie.mkv"),
+      dir,
+    );
+    assert.equal(conflict.outcome, "missing");
+
+    await mkdir(path.join(dir, "Movies", "Demo Movie"), { recursive: true });
+    await writeFile(path.join(dir, "Movies", "Demo Movie", "Demo Movie.mkv"), "again", "utf8");
+    const exists = await moveDownloadedPathToKids(path.join(dir, "Movies", "Demo Movie", "Demo Movie.mkv"), dir);
+    assert.equal(exists.outcome, "target-exists");
   });
 });

@@ -3,7 +3,7 @@ import { context, trace } from "@opentelemetry/api";
 import type { Context as OtelContext } from "@opentelemetry/api";
 import type { Context } from "telegraf";
 import {
-  createDeleteButtonReplyMarkup,
+  createStatusActionReplyMarkup,
   type DeleteButtonState,
 } from "../files/delete-buttons.js";
 import {
@@ -129,11 +129,17 @@ export class DownloadHandlers {
         progressMinIntervalMs: this.progressMinIntervalMs,
         progressPercentStep: this.progressPercentStep,
         getStatusMarkup: () => {
-          if (!deleteToken || this.deleteButtons.getCached(deleteToken)?.deletedAt) {
+          const record = deleteToken ? this.deleteButtons.getCached(deleteToken) : undefined;
+
+          if (!record || record.deletedAt) {
             return undefined;
           }
 
-          return createDeleteButtonReplyMarkup(deleteToken);
+          return createStatusActionReplyMarkup(
+            record.token,
+            record.filePath,
+            this.settings.download.directory,
+          );
         },
         isDeleted: () => (deleteToken ? this.deleteButtons.getCached(deleteToken)?.deletedAt !== undefined : false),
       });

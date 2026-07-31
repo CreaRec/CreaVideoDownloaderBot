@@ -1,14 +1,24 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { InlineKeyboardMarkup } from "telegraf/types";
 import { isPathInsideDirectory, pruneEmptyParentDirectories } from "../download/download-paths.js";
+import {
+  buildKidsTargetRelativePath,
+  canMoveRelativePathToKids,
+  movePathToKids,
+  resolveLibraryItemRelativePath,
+} from "./kids-move.js";
 
 export { isPathInsideDirectory } from "../download/download-paths.js";
 
 const CALLBACK_PREFIX = "file-delete";
 
-export type DeleteButtonAction = "ask" | "confirm" | "cancel";
+const DELETE_CONFIRMATION_MARKER = "\n\nDelete this downloaded file?";
+const MOVE_CONFIRMATION_MARKER = "\n\nMove this to Kids?";
+
+export type DeleteButtonAction = "ask" | "confirm" | "cancel" | "ask-move" | "confirm-move";
+export type MoveDownloadedToKidsOutcome = "moved" | "missing" | "protected" | "target-exists";
 
 export interface DeleteButtonRecord {
   token: string;
@@ -179,12 +189,31 @@ export class DeleteButtonState {
   }
 }
 
-export function createDeleteButtonReplyMarkup(token: string): DeleteButtonReplyMarkup {
+export function createDeleteButtonReplyMarkup(
+  token: string,
+  options: { includeMoveToKids?: boolean } = {},
+): DeleteButtonReplyMarkup {
+  const rows = [[{ text: "Delete file", callback_data: createDeleteCallbackData("ask", token) }]];
+
+  if (options.includeMoveToKids) {
+    rows.push([{ text: "Move to Kids", callback_data: createDeleteCallbackData("ask-move", token) }]);
+  }
+
   return {
     reply_markup: {
-      inline_keyboard: [[{ text: "Delete file", callback_data: createDeleteCallbackData("ask", token) }]],
+      inline_keyboard: rows,
     },
   };
+}
+
+export function createStatusActionReplyMarkup(
+  token: string,
+  filePath: string,
+  downloadDirectory: string,
+): DeleteButtonReplyMarkup {
+  return createDeleteButtonReplyMarkup(token, {
+    includeMoveToKids: canMoveDownloadedPathToKids(filePath, downloadDirectory),
+  });
 }
 
 export function createDeleteConfirmationReplyMarkup(token: string): DeleteButtonReplyMarkup {
@@ -193,6 +222,19 @@ export function createDeleteConfirmationReplyMarkup(token: string): DeleteButton
       inline_keyboard: [
         [
           { text: "Confirm delete", callback_data: createDeleteCallbackData("confirm", token) },
+          { text: "Cancel", callback_data: createDeleteCallbackData("cancel", token) },
+        ],
+      ],
+    },
+  };
+}
+
+export function createMoveToKidsConfirmationReplyMarkup(token: string): DeleteButtonReplyMarkup {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "Confirm move", callback_data: createDeleteCallbackData("confirm-move", token) },
           { text: "Cancel", callback_data: createDeleteCallbackData("cancel", token) },
         ],
       ],
@@ -223,7 +265,71 @@ export function createDeleteFailedStatusMessage(originalText: string, filePath: 
 }
 
 export function createDeleteConfirmationStatusMessage(originalText: string): string {
-  return `${originalText}\n\nDelete this downloaded file?`;
+  return `${originalText}${DELETE_CONFIRMATION_MARKER}`;
+}
+
+export function createMoveToKidsConfirmationStatusMessage(
+  originalText: string,
+  sourceRelativePath: string,
+  targetRelativePath: string,
+): string {
+  return `${originalText}${MOVE_CONFIRMATION_MARKER}\n${formatRelativePath(sourceRelativePath)}\n→\n${formatRelativePath(targetRelativePath)}`;
+}
+
+export function createMovedToKidsStatusMessage(
+  originalText: string,
+  sourceRelativePath: string,
+  targetRelativePath: string,
+): string {
+  return `${originalText}\n\nMoved to Kids: ${formatRelativePath(sourceRelativePath)} → ${formatRelativePath(targetRelativePath)}`;
+}
+
+export function createMoveToKidsFailedStatusMessage(originalText: string, reason: string): string {
+  return `${originalText}\n\nCould not move to Kids.\n${reason}`;
+}
+
+export function stripStatusConfirmationSuffix(text: string): string {
+  for (const marker of [DELETE_CONFIRMATION_MARKER, MOVE_CONFIRMATION_MARKER]) {
+    const index = text.indexOf(marker);
+
+    if (index !== -1) {
+      return text.slice(0, index);
+    }
+  }
+
+  return text;
+}
+
+export function canMoveDownloadedPathToKids(filePath: string, downloadDirectory: string): boolean {
+  if (!isPathInsideDirectory(filePath, downloadDirectory)) {
+    return false;
+  }
+
+  const relativePath = path.relative(path.resolve(downloadDirectory), path.resolve(filePath));
+  const libraryItemPath = resolveLibraryItemRelativePath(relativePath);
+
+  return libraryItemPath !== undefined && canMoveRelativePathToKids(libraryItemPath);
+}
+
+export function resolveMoveToKidsPaths(
+  filePath: string,
+  downloadDirectory: string,
+): { sourceRelativePath: string; targetRelativePath: string } | undefined {
+  if (!isPathInsideDirectory(filePath, downloadDirectory)) {
+    return undefined;
+  }
+
+  const relativePath = path.relative(path.resolve(downloadDirectory), path.resolve(filePath));
+  const sourceRelativePath = resolveLibraryItemRelativePath(relativePath);
+
+  if (!sourceRelativePath) {
+    return undefined;
+  }
+
+  return {
+    sourceRelativePath,
+    targetRelativePath: buildKidsTargetRelativePath(sourceRelativePath),
+  };
 }
 
 export async function deleteDownloadedFile(filePath: string, downloadDirectory: string): Promise<"deleted" | "missing"> {
@@ -244,12 +350,69 @@ export async function deleteDownloadedFile(filePath: string, downloadDirectory: 
   }
 }
 
+export async function moveDownloadedPathToKids(
+  filePath: string,
+  downloadDirectory: string,
+): Promise<{
+  outcome: MoveDownloadedToKidsOutcome;
+  sourceRelativePath?: string;
+  targetRelativePath?: string;
+}> {
+  if (!isPathInsideDirectory(filePath, downloadDirectory)) {
+    throw new Error("Refusing to move a path outside the configured download directory.");
+  }
+
+  const paths = resolveMoveToKidsPaths(filePath, downloadDirectory);
+
+  if (!paths) {
+    return { outcome: "protected" };
+  }
+
+  const rootDirectory = path.resolve(downloadDirectory);
+  const sourceAbsolutePath = path.join(rootDirectory, paths.sourceRelativePath);
+  const targetAbsolutePath = path.join(rootDirectory, paths.targetRelativePath);
+
+  try {
+    await stat(sourceAbsolutePath);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return { outcome: "missing", ...paths };
+    }
+
+    throw error;
+  }
+
+  try {
+    await movePathToKids(sourceAbsolutePath, targetAbsolutePath);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Target already exists")) {
+      return { outcome: "target-exists", ...paths };
+    }
+
+    throw error;
+  }
+
+  await pruneEmptyParentDirectories(sourceAbsolutePath, downloadDirectory);
+
+  return { outcome: "moved", ...paths };
+}
+
 function createDeleteCallbackData(action: DeleteButtonAction, token: string): string {
   return `${CALLBACK_PREFIX}:${action}:${token}`;
 }
 
 function isDeleteButtonAction(value: string): value is DeleteButtonAction {
-  return value === "ask" || value === "confirm" || value === "cancel";
+  return (
+    value === "ask" ||
+    value === "confirm" ||
+    value === "cancel" ||
+    value === "ask-move" ||
+    value === "confirm-move"
+  );
+}
+
+function formatRelativePath(relativePath: string): string {
+  return relativePath.split(path.sep).join("/");
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
