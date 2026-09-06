@@ -5,6 +5,10 @@ export class ActiveDownloads {
     this.controllersByDeleteToken.set(token, controller);
   }
 
+  isActive(token: string): boolean {
+    return this.controllersByDeleteToken.has(token);
+  }
+
   abort(token: string): void {
     this.controllersByDeleteToken.get(token)?.abort();
   }

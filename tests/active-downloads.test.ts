@@ -7,10 +7,12 @@ test("register and abort abort the matching controller", () => {
   const controller = new AbortController();
 
   active.register("tok-1", controller);
+  assert.equal(active.isActive("tok-1"), true);
   assert.equal(controller.signal.aborted, false);
 
   active.abort("tok-1");
   assert.equal(controller.signal.aborted, true);
+  assert.equal(active.isActive("tok-1"), true);
 });
 
 test("clear without a controller removes the token", () => {
@@ -19,6 +21,7 @@ test("clear without a controller removes the token", () => {
 
   active.register("tok-1", controller);
   active.clear("tok-1");
+  assert.equal(active.isActive("tok-1"), false);
   active.abort("tok-1");
   assert.equal(controller.signal.aborted, false);
 });

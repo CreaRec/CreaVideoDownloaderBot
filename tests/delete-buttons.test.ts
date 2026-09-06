@@ -9,6 +9,7 @@ import {
   createDeleteFailedStatusMessage,
   createDeletedStatusMessage,
   createMoveToKidsConfirmationStatusMessage,
+  createStatusActionReplyMarkup,
   deleteDownloadedFile,
   DeleteButtonState,
   isPathInsideDirectory,
@@ -46,6 +47,29 @@ test("delete button callback data is parsed from generated markup", () => {
     token: "abc123",
   });
   assert.equal(parseDeleteCallbackData("unknown"), undefined);
+});
+
+test("status action markup includes Move to Kids only after download completes", () => {
+  const filePath = "/downloads/Movies/Demo Movie/Demo Movie.mkv";
+  const downloadDirectory = "/downloads";
+
+  const inProgress = createStatusActionReplyMarkup("abc123", filePath, downloadDirectory, {
+    downloadComplete: false,
+  });
+  const completed = createStatusActionReplyMarkup("abc123", filePath, downloadDirectory, {
+    downloadComplete: true,
+  });
+  const defaultCompleted = createStatusActionReplyMarkup("abc123", filePath, downloadDirectory);
+
+  assert.deepEqual(
+    inProgress.reply_markup.inline_keyboard.map((row) => row.map((button) => button.text)),
+    [["Delete file"]],
+  );
+  assert.deepEqual(
+    completed.reply_markup.inline_keyboard.map((row) => row.map((button) => button.text)),
+    [["Delete file"], ["Move to Kids"]],
+  );
+  assert.deepEqual(completed, defaultCompleted);
 });
 
 test("delete status messages keep the original text readable", () => {

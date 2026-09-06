@@ -210,9 +210,13 @@ export function createStatusActionReplyMarkup(
   token: string,
   filePath: string,
   downloadDirectory: string,
+  options: { downloadComplete?: boolean } = {},
 ): DeleteButtonReplyMarkup {
+  const downloadComplete = options.downloadComplete ?? true;
+
   return createDeleteButtonReplyMarkup(token, {
-    includeMoveToKids: canMoveDownloadedPathToKids(filePath, downloadDirectory),
+    includeMoveToKids:
+      downloadComplete && canMoveDownloadedPathToKids(filePath, downloadDirectory),
   });
 }
 

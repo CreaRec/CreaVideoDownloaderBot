@@ -68,8 +68,11 @@ export class DeleteHandlers {
       : record.originalText;
     await this.deleteButtons.updateOriginalText(record.token, originalText);
 
+    const downloadComplete = !this.activeDownloads.isActive(record.token);
     const statusMarkup = () =>
-      createStatusActionReplyMarkup(record.token, record.filePath, this.settings.download.directory);
+      createStatusActionReplyMarkup(record.token, record.filePath, this.settings.download.directory, {
+        downloadComplete,
+      });
 
     if (callback.action === "ask") {
       await ctx.telegram.editMessageText(
@@ -84,6 +87,11 @@ export class DeleteHandlers {
     }
 
     if (callback.action === "ask-move") {
+      if (!downloadComplete) {
+        await answerCallback(ctx, this.logger, "Wait until the download finishes.");
+        return;
+      }
+
       const paths = resolveMoveToKidsPaths(record.filePath, this.settings.download.directory);
 
       if (!paths) {
