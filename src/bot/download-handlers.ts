@@ -118,6 +118,7 @@ export class DownloadHandlers {
       span.setAttribute("bot.message_id", message.message_id);
 
       let deleteToken: string | undefined;
+      let downloadComplete = false;
       const abortController = new AbortController();
       const progressReporter = createProgressReporter({
         scheduler: this.statusScheduler,
@@ -139,6 +140,7 @@ export class DownloadHandlers {
             record.token,
             record.filePath,
             this.settings.download.directory,
+            { downloadComplete },
           );
         },
         isDeleted: () => (deleteToken ? this.deleteButtons.getCached(deleteToken)?.deletedAt !== undefined : false),
@@ -298,6 +300,7 @@ export class DownloadHandlers {
           duration_ms: durationMs,
         });
         span.setAttribute("result", "success");
+        downloadComplete = true;
         await progressReporter.complete(result, reply);
       } catch (error) {
         if (isDownloadCanceled(error)) {

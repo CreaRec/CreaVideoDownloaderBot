@@ -115,6 +115,112 @@ test("DownloadHandlers shows Queued when the user media download is already busy
   });
 });
 
+test("DownloadHandlers omits Move to Kids until the download completes", async () => {
+  await withTempDir(async (tempDir) => {
+    const settings = createSettings({
+      download: { directory: tempDir },
+      app: { stateDirectory: tempDir },
+    });
+    const outputPath = path.join(tempDir, "Movies", "Demo Movie", "movie.mp4");
+    const edits: Array<{ message: string; extra?: ReturnType<typeof createStatusActionReplyMarkup> }> = [];
+    let resolveTransfer: () => void = () => {};
+    const transferGate = new Promise<void>((resolve) => {
+      resolveTransfer = resolve;
+    });
+    let outputRegistered = false;
+
+    const downloader = {
+      isMediaDownloadBusy() {
+        return false;
+      },
+      async prepareDownload() {
+        return {
+          message: {},
+          metadata: { kind: "movie" as const, title: "Demo Movie" },
+          canonicalPath: outputPath,
+        };
+      },
+      async downloadPrepared(
+        _prepared: unknown,
+        request: {
+          onOutputPath?: (outputPath: string) => void | Promise<void>;
+          onProgress?: (progress: { downloadedBytes: number; totalBytes: number; percent: number }) => void;
+        },
+      ) {
+        await mkdir(path.dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, "partial", "utf8");
+        await request.onOutputPath?.(outputPath);
+        outputRegistered = true;
+        request.onProgress?.({ downloadedBytes: 256_000, totalBytes: 639_700_000, percent: 0 });
+        await transferGate;
+        await writeFile(outputPath, "complete", "utf8");
+        return { outputPath, bytes: 8 };
+      },
+    };
+
+    const handlers = new DownloadHandlers(
+      settings,
+      downloader as never,
+      createLoggerSpy(),
+      DeleteButtonState.forStateDirectory(tempDir),
+      new ActiveDownloads(),
+      {
+        scheduleProgress(
+          _chatId: number,
+          _messageId: number,
+          message: string,
+          extra?: ReturnType<typeof createStatusActionReplyMarkup>,
+        ) {
+          edits.push({ message, extra });
+        },
+        async scheduleTerminal(
+          _chatId: number,
+          _messageId: number,
+          message: string,
+          extra?: ReturnType<typeof createStatusActionReplyMarkup>,
+        ) {
+          edits.push({ message, extra });
+        },
+        async whenIdle() {},
+      } as never,
+      0,
+      1,
+    );
+
+    const downloadPromise = handlers.downloadAndNotify(
+      1234,
+      { message_id: 10, date: 1_000, video: { file_name: "movie.mp4" } } as never,
+      1234,
+      async () => ({ message_id: 1 }),
+      99,
+    );
+
+    await waitFor(() => outputRegistered);
+    await waitFor(() => edits.some((edit) => edit.message.startsWith("Downloading")));
+
+    const inProgressEdits = edits.filter((edit) => edit.message.startsWith("Downloading") || edit.message.startsWith("Download started"));
+    assert.ok(inProgressEdits.length >= 1);
+
+    for (const edit of inProgressEdits) {
+      const buttonTexts = (edit.extra?.reply_markup.inline_keyboard ?? []).flatMap((row) =>
+        row.map((button) => button.text),
+      );
+      assert.deepEqual(buttonTexts, ["Delete file"]);
+      assert.equal(buttonTexts.includes("Move to Kids"), false);
+    }
+
+    resolveTransfer();
+    await downloadPromise;
+
+    const completedEdit = edits.find((edit) => edit.message.startsWith("Saved "));
+    assert.ok(completedEdit);
+    assert.deepEqual(
+      (completedEdit.extra?.reply_markup.inline_keyboard ?? []).flatMap((row) => row.map((button) => button.text)),
+      ["Delete file", "Move to Kids"],
+    );
+  });
+});
+
 async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
   const startedAt = Date.now();
 
@@ -262,6 +368,118 @@ test("DeleteHandlers cancel restores delete and Move to Kids buttons", async () 
     assert.equal(edits[0]?.text, "Saved movie.mp4");
     assert.deepEqual(edits[0]?.extra, createStatusActionReplyMarkup(record.token, filePath, tempDir));
     assert.deepEqual(answers, ["Cancelled."]);
+  });
+});
+
+test("DeleteHandlers cancel during download restores Delete file without Move to Kids", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "Movies", "Demo Movie", "movie.mp4");
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, "partial", "utf8");
+    const state = DeleteButtonState.forStateDirectory(tempDir);
+    const activeDownloads = new ActiveDownloads();
+    const record = await state.upsertForStatus({
+      chatId: 1234,
+      messageId: 99,
+      filePath,
+      originalText: "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)",
+    });
+    activeDownloads.register(record.token, new AbortController());
+    const edits: Array<{ text: string; extra?: unknown }> = [];
+    const answers: string[] = [];
+    const handlers = new DeleteHandlers(
+      createSettings({ download: { directory: tempDir } }),
+      createLoggerSpy(),
+      state,
+      activeDownloads,
+    );
+
+    await handlers.handleDeleteButton({
+      from: { id: 1234 },
+      callbackQuery: {
+        data: `file-delete:cancel:${record.token}`,
+        message: {
+          message_id: 99,
+          chat: { id: 1234 },
+          text: "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)\n\nDelete this downloaded file?",
+        },
+      },
+      telegram: {
+        editMessageText: async (
+          _chatId: number,
+          _messageId: number,
+          _inline: undefined,
+          text: string,
+          extra?: unknown,
+        ) => {
+          edits.push({ text, extra });
+        },
+      },
+      answerCbQuery: async (message: string) => {
+        answers.push(message);
+      },
+    } as never);
+
+    assert.equal(edits[0]?.text, "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)");
+    assert.deepEqual(
+      edits[0]?.extra,
+      createStatusActionReplyMarkup(record.token, filePath, tempDir, { downloadComplete: false }),
+    );
+    assert.deepEqual(answers, ["Cancelled."]);
+  });
+});
+
+test("DeleteHandlers ask-move while download is active is rejected", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "Movies", "Demo Movie", "movie.mp4");
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, "partial", "utf8");
+    const state = DeleteButtonState.forStateDirectory(tempDir);
+    const activeDownloads = new ActiveDownloads();
+    const record = await state.upsertForStatus({
+      chatId: 1234,
+      messageId: 99,
+      filePath,
+      originalText: "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)",
+    });
+    activeDownloads.register(record.token, new AbortController());
+    const edits: Array<{ text: string; extra?: unknown }> = [];
+    const answers: string[] = [];
+    const handlers = new DeleteHandlers(
+      createSettings({ download: { directory: tempDir } }),
+      createLoggerSpy(),
+      state,
+      activeDownloads,
+    );
+
+    await handlers.handleDeleteButton({
+      from: { id: 1234 },
+      callbackQuery: {
+        data: `file-delete:ask-move:${record.token}`,
+        message: {
+          message_id: 99,
+          chat: { id: 1234 },
+          text: "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)",
+        },
+      },
+      telegram: {
+        editMessageText: async (
+          _chatId: number,
+          _messageId: number,
+          _inline: undefined,
+          text: string,
+          extra?: unknown,
+        ) => {
+          edits.push({ text, extra });
+        },
+      },
+      answerCbQuery: async (message: string) => {
+        answers.push(message);
+      },
+    } as never);
+
+    assert.deepEqual(edits, []);
+    assert.deepEqual(answers, ["Wait until the download finishes."]);
   });
 });
 
