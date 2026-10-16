@@ -97,11 +97,11 @@ test("progress reporter edits status messages at percent steps and on completion
 
   assert.deepEqual(edits, [
     {
-      message: "Downloading movie.mp4: 12% (12 B of 100 B)",
+      message: "Downloading movie.mp4: 12% · — (12 B of 100 B)",
       extra: createDeleteButtonReplyMarkup("token"),
     },
     {
-      message: "Downloading movie.mp4: 16% (16 B of 100 B)",
+      message: "Downloading movie.mp4: 16% · — (16 B of 100 B)",
       extra: createDeleteButtonReplyMarkup("token"),
     },
     {
@@ -161,7 +161,44 @@ test("progress reporter stops editing after the file has been deleted", async ()
   await reporter.complete({ outputPath: "/tmp/movie.mp4", bytes: 100 }, async () => ({ message_id: 1 }));
   await scheduler.whenIdle();
 
-  assert.deepEqual(edits, ["Downloading movie.mp4: 50% (50 B of 100 B)"]);
+  assert.deepEqual(edits, ["Downloading movie.mp4: 50% · — (50 B of 100 B)"]);
+});
+
+test("progress reporter shows smoothed ETA after a short warm-up window", async () => {
+  const logger = createLoggerSpy();
+  const edits: string[] = [];
+  let now = 10_000;
+  mock.method(Date, "now", () => now);
+  const scheduler = new StatusEditScheduler(
+    async (_chatId, _messageId, message) => {
+      edits.push(message);
+    },
+    logger,
+    0,
+  );
+
+  const reporter = createProgressReporter({
+    scheduler,
+    chatId: 1234,
+    fileName: "movie.mp4",
+    logger,
+    messageId: 10,
+    statusMessageId: 99,
+    progressMinIntervalMs: 500,
+    progressPercentStep: 5,
+  });
+
+  reporter.report({ downloadedBytes: 0, totalBytes: 100_000, percent: 0 });
+  await scheduler.whenIdle();
+  now += 1_500;
+  reporter.report({ downloadedBytes: 25_000, totalBytes: 100_000, percent: 25 });
+  await scheduler.whenIdle();
+  now += 1_500;
+  reporter.report({ downloadedBytes: 50_000, totalBytes: 100_000, percent: 50 });
+  await scheduler.whenIdle();
+
+  assert.match(edits[0] ?? "", /0% · —/);
+  assert.match(edits.at(-1) ?? "", /50% · ~\d+ сек осталось/);
 });
 
 test("progress reporter throttles byte-only updates by time interval", async () => {
@@ -384,7 +421,7 @@ test("confirming delete aborts the active download and suppresses failed status"
         message: {
           message_id: 99,
           chat: { id: 1234 },
-          text: "Downloading movie.mp4: 10% (1 B of 10 B)",
+          text: "Downloading movie.mp4: 10% · — (1 B of 10 B)",
         },
       },
       telegram: {
