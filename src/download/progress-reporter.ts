@@ -1,3 +1,4 @@
+import { createDownloadEtaState, formatProgressPercentWithEta } from "./download-eta.js";
 import type { DeleteButtonReplyMarkup } from "../files/delete-buttons.js";
 import type { DownloadProgress, DownloadResult } from "./downloader.js";
 import type { Logger } from "../config/logger.js";
@@ -29,6 +30,7 @@ export function createProgressReporter(options: ProgressReporterOptions): {
 } {
   const progressMinIntervalMs = options.progressMinIntervalMs ?? DEFAULT_PROGRESS_MIN_INTERVAL_MS;
   const progressPercentStep = options.progressPercentStep ?? DEFAULT_PROGRESS_PERCENT_STEP;
+  const etaState = createDownloadEtaState();
   let lastPercent = -1;
   let lastUpdateAt = 0;
   let lastMessage = `Download started: ${options.fileName}`;
@@ -92,6 +94,9 @@ export function createProgressReporter(options: ProgressReporterOptions): {
 
     lastPercent = steppedPercent;
     lastUpdateAt = now;
+    etaState.recordSample(progress.downloadedBytes, progress.totalBytes, now);
+    const remainingSeconds = etaState.getRemainingSeconds(progress.downloadedBytes, progress.totalBytes);
+    const percentWithEta = formatProgressPercentWithEta(percent, remainingSeconds);
     options.logger.debug("[download] progress percent", {
       component: "download",
       handler: "download",
@@ -101,7 +106,7 @@ export function createProgressReporter(options: ProgressReporterOptions): {
       percent,
     });
     sendProgress(
-      `Downloading ${options.fileName}: ${percent}% (${formatBytes(progress.downloadedBytes)} of ${formatBytes(progress.totalBytes)})`,
+      `Downloading ${options.fileName}: ${percentWithEta} (${formatBytes(progress.downloadedBytes)} of ${formatBytes(progress.totalBytes)})`,
     );
   };
 

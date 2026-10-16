@@ -382,7 +382,7 @@ test("DeleteHandlers cancel during download restores Delete file without Move to
       chatId: 1234,
       messageId: 99,
       filePath,
-      originalText: "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)",
+      originalText: "Downloading movie.mp4: 0% · — (256.0 KB of 639.7 MB)",
     });
     activeDownloads.register(record.token, new AbortController());
     const edits: Array<{ text: string; extra?: unknown }> = [];
@@ -401,7 +401,7 @@ test("DeleteHandlers cancel during download restores Delete file without Move to
         message: {
           message_id: 99,
           chat: { id: 1234 },
-          text: "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)\n\nDelete this downloaded file?",
+          text: "Downloading movie.mp4: 0% · — (256.0 KB of 639.7 MB)\n\nDelete this downloaded file?",
         },
       },
       telegram: {
@@ -420,7 +420,7 @@ test("DeleteHandlers cancel during download restores Delete file without Move to
       },
     } as never);
 
-    assert.equal(edits[0]?.text, "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)");
+    assert.equal(edits[0]?.text, "Downloading movie.mp4: 0% · — (256.0 KB of 639.7 MB)");
     assert.deepEqual(
       edits[0]?.extra,
       createStatusActionReplyMarkup(record.token, filePath, tempDir, { downloadComplete: false }),
@@ -440,7 +440,7 @@ test("DeleteHandlers ask-move while download is active is rejected", async () =>
       chatId: 1234,
       messageId: 99,
       filePath,
-      originalText: "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)",
+      originalText: "Downloading movie.mp4: 0% · — (256.0 KB of 639.7 MB)",
     });
     activeDownloads.register(record.token, new AbortController());
     const edits: Array<{ text: string; extra?: unknown }> = [];
@@ -459,7 +459,7 @@ test("DeleteHandlers ask-move while download is active is rejected", async () =>
         message: {
           message_id: 99,
           chat: { id: 1234 },
-          text: "Downloading movie.mp4: 0% (256.0 KB of 639.7 MB)",
+          text: "Downloading movie.mp4: 0% · — (256.0 KB of 639.7 MB)",
         },
       },
       telegram: {
