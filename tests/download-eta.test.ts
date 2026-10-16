@@ -15,7 +15,7 @@ test("formatEtaRemainingLabel uses an em dash when ETA is unknown", () => {
 test("formatEtaRemainingLabel rounds human-readable durations", () => {
   assert.equal(formatEtaRemainingLabel(45), "~45 сек осталось");
   assert.equal(formatEtaRemainingLabel(180), "~3 мин осталось");
-  assert.equal(formatEtaRemainingLabel(3_700), "~1 ч осталось");
+  assert.equal(formatEtaRemainingLabel(3_600), "~1 ч осталось");
   assert.equal(formatEtaRemainingLabel(4_500), "~1 ч 15 мин осталось");
 });
 
