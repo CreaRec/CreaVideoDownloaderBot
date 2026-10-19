@@ -14,6 +14,14 @@ import {
   parseDuplicateCallbackData,
 } from "./duplicate-choice.js";
 import {
+  createShowAmbiguityPromptMessage,
+  createShowChoiceReplyMarkup,
+  parseShowCallbackData,
+  ShowChoicePending,
+} from "./show-choice.js";
+import { QueueDrainNotifier, type QueueItemOutcome } from "../download/queue-drain-notifier.js";
+import type { LibraryTvShow, ShowLibraryResolution } from "../metadata/tv-library-catalog.js";
+import {
   isDownloadCanceled,
   type DuplicateChoice,
   type TelegramDownloader,
@@ -47,6 +55,9 @@ export type DownloadHandleOptions = {
 
 export class DownloadHandlers {
   private readonly duplicateChoices = new DuplicateChoicePending();
+  private readonly showChoices = new ShowChoicePending();
+  private readonly queueDrainByUser = new Map<number, QueueDrainNotifier>();
+  private readonly tvShowChoiceCacheByUser = new Map<number, Map<string, ShowLibraryResolution>>();
 
   constructor(
     private readonly settings: Settings,
@@ -112,6 +123,10 @@ export class DownloadHandlers {
     const tracer = trace.getTracer("crea-video-downloader");
     const started = process.hrtime.bigint();
 
+    const queueDrain = this.getQueueDrainNotifier(fromUserId);
+    queueDrain.begin();
+    let queueOutcome: QueueItemOutcome | undefined;
+
     await tracer.startActiveSpan("download.run", async (span) => {
       span.setAttribute("handler", "download");
       span.setAttribute("media.kind", mediaKind);
@@ -173,6 +188,7 @@ export class DownloadHandlers {
             await progressReporter.refresh();
           },
           onProgress: progressReporter.report,
+          metadataContext: this.createMetadataContext(fromUserId, chatId, statusMessageId, reply),
         };
 
         this.logger.info("[download] prepare started", {
@@ -252,6 +268,7 @@ export class DownloadHandlers {
                 reply,
               );
               span.setAttribute("result", "skipped");
+              queueOutcome = "skipped";
               return;
             }
           }
@@ -301,6 +318,7 @@ export class DownloadHandlers {
         });
         span.setAttribute("result", "success");
         downloadComplete = true;
+        queueOutcome = "success";
         await progressReporter.complete(result, reply);
       } catch (error) {
         if (isDownloadCanceled(error)) {
@@ -313,6 +331,7 @@ export class DownloadHandlers {
             file_name: fileName,
           });
           span.setAttribute("result", "canceled");
+          queueOutcome = "skipped";
           return;
         }
 
@@ -321,6 +340,7 @@ export class DownloadHandlers {
         }
         span.setStatus({ code: 2, message: "download_failed" });
         span.setAttribute("result", "error");
+        queueOutcome = "failed";
         this.logger.exception("[download] failed", error, {
           component: "download",
           handler: "download",
@@ -338,6 +358,139 @@ export class DownloadHandlers {
         span.end();
       }
     });
+
+    if (queueOutcome) {
+      const summary = queueDrain.complete(queueOutcome, fileName);
+      await queueDrain.notifyIfDrained(reply, summary);
+
+      if (summary) {
+        this.tvShowChoiceCacheByUser.delete(fromUserId);
+        this.downloader.invalidateTvLibraryCache();
+        this.logger.info("[download] queue drained", {
+          component: "download",
+          handler: "download",
+          step: "queue_drained",
+          result: "success",
+          succeeded: summary.succeeded,
+          failed: summary.failed,
+          skipped: summary.skipped,
+        });
+      }
+    }
+  }
+
+  private getQueueDrainNotifier(userId: number): QueueDrainNotifier {
+    let notifier = this.queueDrainByUser.get(userId);
+
+    if (!notifier) {
+      notifier = new QueueDrainNotifier();
+      this.queueDrainByUser.set(userId, notifier);
+    }
+
+    return notifier;
+  }
+
+  private getTvShowChoiceCache(userId: number): Map<string, ShowLibraryResolution> {
+    let cache = this.tvShowChoiceCacheByUser.get(userId);
+
+    if (!cache) {
+      cache = new Map();
+      this.tvShowChoiceCacheByUser.set(userId, cache);
+    }
+
+    return cache;
+  }
+
+  private createMetadataContext(
+    userId: number,
+    chatId: number,
+    statusMessageId: number | undefined,
+    reply: ReplyFn,
+  ) {
+    const choiceCache = this.getTvShowChoiceCache(userId);
+
+    return {
+      getCachedTvShowChoice: (normalizedTitle: string) => choiceCache.get(normalizedTitle),
+      rememberTvShowChoice: (normalizedTitle: string, choice: ShowLibraryResolution) => {
+        choiceCache.set(normalizedTitle, choice);
+      },
+      resolveAmbiguousTvShow: async (input: { classifiedTitle: string; candidates: LibraryTvShow[] }) => {
+        if (!statusMessageId) {
+          this.logger.warn("[download] ambiguous TV show without status message; using TMDB", {
+            component: "download",
+            handler: "download",
+            step: "show_prompt",
+            result: "tmdb",
+            match_count: input.candidates.length,
+          });
+          return { source: "tmdb" };
+        }
+
+        const pending = this.showChoices.create({
+          chatId,
+          messageId: statusMessageId,
+          classifiedTitle: input.classifiedTitle,
+          candidates: input.candidates,
+        });
+
+        await this.statusScheduler.scheduleTerminal(
+          chatId,
+          statusMessageId,
+          createShowAmbiguityPromptMessage(input.classifiedTitle, input.candidates),
+          createShowChoiceReplyMarkup(pending.token, input.candidates),
+          reply,
+        );
+
+        const choice = await pending.choice;
+
+        if (choice.source === "library") {
+          return choice;
+        }
+
+        return { source: "tmdb" };
+      },
+    };
+  }
+
+  async handleShowChoiceButton(ctx: Context): Promise<void> {
+    const userId = ctx.from?.id;
+
+    if (!isAllowedUser(this.settings, userId)) {
+      await answerCallback(ctx, this.logger, BOT_PRIVATE_MESSAGE);
+      return;
+    }
+
+    const callback = parseShowCallbackData(getCallbackData(ctx));
+
+    if (!callback) {
+      await answerCallback(ctx, this.logger, "Unknown action.");
+      return;
+    }
+
+    const resolution =
+      callback.action === "library" && callback.showId
+        ? { source: "library" as const, showId: callback.showId }
+        : { source: "tmdb" as const };
+
+    const resolved = this.showChoices.resolveToken(callback.token, resolution);
+
+    if (!resolved) {
+      await answerCallback(ctx, this.logger, "This choice expired.");
+      return;
+    }
+
+    this.logger.info("[download] show choice button", {
+      component: "download",
+      handler: "show_choice",
+      step: "callback",
+      result: callback.action,
+    });
+
+    await answerCallback(
+      ctx,
+      this.logger,
+      callback.action === "library" ? "Using selected library show…" : "Searching TMDB…",
+    );
   }
 
   async handleDuplicateChoiceButton(ctx: Context): Promise<void> {

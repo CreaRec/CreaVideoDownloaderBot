@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import type { Logger } from "../config/logger.js";
 import type { Settings } from "../config/settings.js";
+import type { LibraryTvShowSummary } from "./tv-library-catalog.js";
 
 const MIN_CONFIDENCE = 0.7;
 
@@ -12,6 +13,7 @@ const modelResponseSchema = z.object({
   season: z.number().int().positive().nullable(),
   episode: z.number().int().positive().nullable(),
   episodeTitle: z.string().nullable(),
+  existingShowId: z.string().nullable().optional(),
   confidence: z.number().min(0).max(1),
   reason: z.string(),
 });
@@ -29,6 +31,7 @@ export type MediaClassification =
       season: number;
       episode: number;
       episodeTitle?: string;
+      libraryShowId?: string;
     }
   | {
       kind: "undefined";
@@ -38,6 +41,7 @@ export type MediaClassification =
 export interface MediaClassificationInput {
   fileName?: string;
   description?: string;
+  existingShows?: LibraryTvShowSummary[];
 }
 
 export class MediaClassifier {
@@ -101,6 +105,7 @@ export class MediaClassifier {
             content: JSON.stringify({
               filename: input.fileName ?? null,
               description: input.description ?? null,
+              existingShows: input.existingShows ?? null,
             }),
           },
         ],
@@ -151,6 +156,7 @@ function normalizeClassification(response: ModelResponse): MediaClassification {
       season: response.season,
       episode: response.episode,
       episodeTitle: response.episodeTitle ?? undefined,
+      libraryShowId: response.existingShowId?.trim() || undefined,
     };
   }
 

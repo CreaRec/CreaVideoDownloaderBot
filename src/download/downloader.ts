@@ -9,6 +9,7 @@ import { findDuplicateMedia } from "../metadata/duplicate-scanner.js";
 import {
   buildLegacyFallbackFileName,
   MediaMetadataService,
+  type MetadataResolveContext,
   type PlexMetadata,
 } from "../metadata/media-metadata.js";
 import { getConfiguredUserSessions, getUserSession, type Settings } from "../config/settings.js";
@@ -25,6 +26,7 @@ export interface DownloadRequest {
   signal?: AbortSignal;
   onOutputPath?: (outputPath: string) => void | Promise<void>;
   onProgress?: (progress: DownloadProgress) => void;
+  metadataContext?: MetadataResolveContext;
 }
 
 export interface DownloadResult {
@@ -125,6 +127,10 @@ export class TelegramDownloader {
 
   isMediaDownloadBusy(telegramUserId: number): boolean {
     return (this.mediaDownloadInFlight.get(telegramUserId) ?? 0) > 0;
+  }
+
+  invalidateTvLibraryCache(): void {
+    this.mediaMetadataService.getTvLibraryCatalog().invalidate();
   }
 
   async prepareDownload(request: DownloadRequest): Promise<PreparedDownload> {
@@ -305,10 +311,13 @@ export class TelegramDownloader {
     const originalName = request.suggestedFileName || fallbackName;
     const safeName = buildLegacyFallbackFileName(originalName);
     const extension = path.extname(safeName) || (request.mediaKind === "video" ? ".mp4" : ".bin");
-    const metadata = await this.mediaMetadataService.resolveMetadata({
-      fileName: request.suggestedFileName,
-      description: request.caption,
-    });
+    const metadata = await this.mediaMetadataService.resolveMetadata(
+      {
+        fileName: request.suggestedFileName,
+        description: request.caption,
+      },
+      request.metadataContext ?? {},
+    );
     const canonicalPath = this.mediaMetadataService.buildOutputPath(
       metadata,
       this.settings.download.directory,

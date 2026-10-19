@@ -14,6 +14,7 @@ Schema:
   "season": "number or null",
   "episode": "number or null",
   "episodeTitle": "string or null",
+  "existingShowId": "string or null",
   "confidence": "number from 0 to 1",
   "reason": "short string"
 }
@@ -36,6 +37,9 @@ Rules:
 - For TV shows, `year` should be the show's first-air year when you know it; otherwise null.
 - `episodeTitle` is optional and should contain only the episode name when available.
 - Set `confidence` below `0.7` if anything important is ambiguous.
+- When `existingShows` is provided in the user payload, it lists TV shows already in the library (`id`, `title`, optional `year`).
+- For `tv_show`, if the media clearly belongs to one of those library entries (even with a different translation, typo, or English title), set `existingShowId` to that entry's `id`.
+- Only set `existingShowId` when you are confident; otherwise leave it null.
 
 Examples:
 
