@@ -423,7 +423,7 @@ export class DownloadHandlers {
             result: "tmdb",
             match_count: input.candidates.length,
           });
-          return { source: "tmdb" };
+          return { source: "tmdb" as const };
         }
 
         const pending = this.showChoices.create({
@@ -447,7 +447,7 @@ export class DownloadHandlers {
           return choice;
         }
 
-        return { source: "tmdb" };
+        return { source: "tmdb" as const };
       },
     };
   }
