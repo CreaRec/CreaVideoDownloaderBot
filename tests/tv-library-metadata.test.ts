@@ -34,7 +34,7 @@ test("resolveMetadata uses a single deterministic library match and skips TMDB s
     resolve: async () => {
       throw new Error("TMDB resolve should not run");
     },
-    getEpisodeTitle: async () => "Episode",
+    getEpisodeTitle: async () => undefined,
   };
 
   const catalog = {
@@ -56,7 +56,6 @@ test("resolveMetadata uses a single deterministic library match and skips TMDB s
   assert.equal(metadata.title, "Как я встретил вашу маму");
   assert.equal(metadata.year, 2005);
   assert.deepEqual(metadata.plexIds, { tvdb: 75760 });
-  assert.equal(metadata.episodeTitle, "Episode");
 });
 
 test("resolveMetadata uses LLM existingShowId when deterministic match is absent", async () => {

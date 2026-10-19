@@ -365,7 +365,7 @@ export class DownloadHandlers {
 
       if (summary) {
         this.tvShowChoiceCacheByUser.delete(fromUserId);
-        this.downloader.invalidateTvLibraryCache();
+        this.downloader.invalidateTvLibraryCache?.();
         this.logger.info("[download] queue drained", {
           component: "download",
           handler: "download",

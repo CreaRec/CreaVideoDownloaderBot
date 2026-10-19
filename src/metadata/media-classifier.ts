@@ -149,14 +149,16 @@ function normalizeClassification(response: ModelResponse): MediaClassification {
   }
 
   if (response.kind === "tv_show" && response.title && response.season && response.episode) {
+    const libraryShowId = response.existingShowId?.trim();
+
     return {
       kind: "tv_show",
       title: response.title,
       year: response.year ?? undefined,
       season: response.season,
       episode: response.episode,
-      episodeTitle: response.episodeTitle ?? undefined,
-      libraryShowId: response.existingShowId?.trim() || undefined,
+      ...(response.episodeTitle ? { episodeTitle: response.episodeTitle } : {}),
+      ...(libraryShowId ? { libraryShowId } : {}),
     };
   }
 
