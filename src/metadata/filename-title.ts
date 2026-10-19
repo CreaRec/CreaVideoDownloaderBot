@@ -104,9 +104,7 @@ function normalizeTitleCandidate(value: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  const cleaned = filterNoiseTokens(normalized).replace(TRAILING_INDEX_PATTERN, "").trim();
-
-  return cleaned || filterNoiseTokens(normalized) || normalized;
+  return filterNoiseTokens(normalized).replace(TRAILING_INDEX_PATTERN, "").trim();
 }
 
 function filterNoiseTokens(value: string): string {
