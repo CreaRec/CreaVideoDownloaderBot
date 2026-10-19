@@ -6,6 +6,12 @@ import type { FileTreeBrowser } from "../files/file-tree.js";
 import type { Logger } from "../config/logger.js";
 import { truncateForLog } from "../config/logger.js";
 import { cleanDownloadTitle } from "../metadata/filename-title.js";
+import {
+  buildAutoSearchLabel,
+  mergeTmdbCandidates,
+  planMetadataFixSearchQueries,
+  type MetadataFixSearchQuery,
+} from "../metadata/metadata-fix-autosearch.js";
 import { parseImdbId } from "../metadata/imdb-id.js";
 import type { MetadataFixHintParser } from "../metadata/metadata-fix-hint.js";
 import { parseSeasonEpisode, type MetadataFixRenamer } from "../metadata/metadata-fix-renamer.js";
@@ -99,10 +105,6 @@ export class MetadataFixHandlers {
     }
 
     this.clearPendingFixPick(userId);
-    this.pendingFixHintByUserId.set(userId, {
-      relativePath,
-      expiresAt: Date.now() + METADATA_FIX_TTL_MS,
-    });
 
     this.logger.info("[metadata_fix] session started", {
       component: "metadata_fix",
@@ -111,16 +113,8 @@ export class MetadataFixHandlers {
       folder_name: formatRelativePath(relativePath),
     });
 
-    const itemLabel = path.basename(relativePath) || relativePath;
-
-    await ctx.reply(
-      [
-        `Исправление метаданных: ${formatRelativePath(relativePath)}`,
-        "Отправьте правильное название текстом, скриншот или ссылку/ID IMDb.",
-        "Покажу варианты из TMDB для выбора.",
-      ].join("\n"),
-    );
-    await this.answerCallback(ctx, `Жду подсказку для «${itemLabel}».`);
+    await this.answerCallback(ctx, "Ищу в TMDB…");
+    await this.beginMetadataFixSession(ctx, userId, relativePath);
   }
 
   async notifyUnrecognizedDownload(
@@ -274,7 +268,7 @@ export class MetadataFixHandlers {
       }
 
       await this.answerCallback(ctx, "Ищу в TMDB…");
-      await this.searchAndPresentMixed(ctx, ctx.from!.id, pendingStart.relativePath, pendingStart.searchQuery);
+      await this.beginMetadataFixSession(ctx, ctx.from!.id, pendingStart.relativePath, pendingStart.searchQuery);
       return;
     }
 
@@ -561,19 +555,105 @@ export class MetadataFixHandlers {
     relativePath: string,
     query: string,
   ): Promise<void> {
-    const cleaned = cleanDownloadTitle(query);
-    const candidates = await this.tmdbResolver.searchMixedCandidates({
-      query: cleaned.query || query,
-      year: cleaned.year,
-      limit: 5,
-    });
+    const search = await this.collectAutoSearchCandidates(relativePath, query);
 
-    if (candidates.length === 0) {
+    if (search.candidates.length === 0) {
       await ctx.reply(`В TMDB ничего не найдено по запросу «${query}».`);
       return;
     }
 
-    await this.presentCandidates(ctx, userId, relativePath, candidates, `Поиск: ${query}`);
+    await this.presentCandidates(ctx, userId, relativePath, search.candidates, search.searchLabel);
+  }
+
+  private async beginMetadataFixSession(
+    ctx: Context,
+    userId: number,
+    relativePath: string,
+    extraQuery?: string,
+  ): Promise<void> {
+    await ctx.reply(`Исправление метаданных: ${formatRelativePath(relativePath)}\nИщу варианты в TMDB…`);
+
+    const search = await this.collectAutoSearchCandidates(relativePath, extraQuery);
+
+    if (search.candidates.length > 0) {
+      await this.presentCandidates(ctx, userId, relativePath, search.candidates, search.searchLabel);
+      return;
+    }
+
+    this.pendingFixHintByUserId.set(userId, {
+      relativePath,
+      expiresAt: Date.now() + METADATA_FIX_TTL_MS,
+    });
+
+    const tried = search.triedQueries.join("», «");
+
+    await ctx.reply(
+      [
+        tried
+          ? `В TMDB ничего не найдено по названию из файла («${tried}»).`
+          : "В TMDB ничего не найдено по названию из файла.",
+        "Отправьте правильное название текстом, скриншот или ссылку/ID IMDb.",
+        "Покажу варианты из TMDB для выбора.",
+      ].join("\n"),
+    );
+  }
+
+  private async collectAutoSearchCandidates(
+    relativePath: string,
+    extraQuery?: string,
+  ): Promise<{ candidates: TmdbCandidate[]; searchLabel: string; triedQueries: string[] }> {
+    const fileName = path.basename(relativePath);
+    const queries = planMetadataFixSearchQueries(fileName, extraQuery);
+    const guessed = await this.metadataFixHintParser.guessTitleFromFilename?.(fileName);
+
+    if (guessed?.title) {
+      const guessLabel = `${guessed.title}${guessed.year ? ` (${guessed.year})` : ""}`;
+      const alreadyPlanned = queries.some(
+        (entry) => entry.query.toLowerCase() === guessed.title.toLowerCase() && entry.year === guessed.year,
+      );
+
+      if (!alreadyPlanned) {
+        queries.unshift({
+          query: guessed.title,
+          year: guessed.year,
+          label: `Угадывание: ${guessLabel}`,
+        });
+      }
+    }
+
+    const batches: TmdbCandidate[][] = [];
+    const usedQueries: MetadataFixSearchQuery[] = [];
+
+    for (const planned of queries) {
+      const cleaned = cleanDownloadTitle(planned.query);
+      const batch = await this.tmdbResolver.searchMixedCandidates({
+        query: cleaned.query || planned.query,
+        year: planned.year ?? cleaned.year,
+        limit: 5,
+      });
+
+      if (batch.length > 0) {
+        batches.push(batch);
+        usedQueries.push(planned);
+      }
+    }
+
+    const candidates = mergeTmdbCandidates(batches);
+
+    this.logger.info("[metadata_fix] auto search finished", {
+      component: "metadata_fix",
+      handler: "metadata_fix",
+      step: "auto_search",
+      candidate_count: candidates.length,
+      query_count: queries.length,
+      folder_name: formatRelativePath(relativePath),
+    });
+
+    return {
+      candidates,
+      searchLabel: buildAutoSearchLabel(usedQueries),
+      triedQueries: queries.map((entry) => entry.label),
+    };
   }
 
   private async presentCandidates(
