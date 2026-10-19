@@ -4,6 +4,15 @@ import { MediaClassifier } from "./media-classifier.js";
 import type { Settings } from "../config/settings.js";
 import { buildMoviePath, buildTvShowPath, buildUndefinedPath, sanitizeLegacyFileName, type PlexIds } from "./plex-paths.js";
 import { TmdbResolver } from "./tmdb-resolver.js";
+import { normalizeMediaTitle } from "./title-normalize.js";
+import {
+  findDeterministicLibraryMatches,
+  findLibraryShowById,
+  toLibraryShowSummaries,
+  TvLibraryCatalog,
+  type LibraryTvShow,
+  type ShowLibraryResolution,
+} from "./tv-library-catalog.js";
 
 export interface PlexMetadata {
   kind: "film" | "tv_show" | "undefined";
@@ -19,46 +28,65 @@ export interface PlexMetadata {
 
 export interface MetadataResolveInput extends MediaClassificationInput {}
 
+export interface MetadataResolveContext {
+  getCachedTvShowChoice?: (normalizedTitle: string) => ShowLibraryResolution | undefined;
+  rememberTvShowChoice?: (normalizedTitle: string, choice: ShowLibraryResolution) => void;
+  resolveAmbiguousTvShow?: (input: {
+    classifiedTitle: string;
+    candidates: LibraryTvShow[];
+  }) => Promise<ShowLibraryResolution>;
+}
+
 export class MediaMetadataService {
   private readonly tmdbResolver: TmdbResolver;
+  private readonly tvLibraryCatalog: TvLibraryCatalog;
 
   constructor(
     private readonly settings: Settings,
     private readonly logger: Logger,
     private readonly mediaClassifier: MediaClassifier = new MediaClassifier(settings, logger),
     tmdbResolver?: TmdbResolver,
+    tvLibraryCatalog?: TvLibraryCatalog,
   ) {
     this.tmdbResolver = tmdbResolver ?? new TmdbResolver(settings, logger);
+    this.tvLibraryCatalog = tvLibraryCatalog ?? new TvLibraryCatalog(settings, logger);
   }
 
-  async resolveMetadata(input: MetadataResolveInput): Promise<PlexMetadata> {
-    const classification = await this.mediaClassifier.classify(input);
+  getTvLibraryCatalog(): TvLibraryCatalog {
+    return this.tvLibraryCatalog;
+  }
+
+  async resolveMetadata(input: MetadataResolveInput, context: MetadataResolveContext = {}): Promise<PlexMetadata> {
+    const libraryShows = await this.tvLibraryCatalog.listShows();
+    const existingShows = toLibraryShowSummaries(libraryShows);
+
+    const classification = await this.mediaClassifier.classify({
+      ...input,
+      existingShows,
+    });
 
     if (classification.kind === "undefined") {
       return { kind: "undefined", reason: classification.reason };
     }
 
+    if (classification.kind === "film") {
+      return this.resolveFilmMetadata(classification);
+    }
+
+    const libraryMatch = await this.resolveTvShowLibraryMatch(classification, libraryShows, context);
+
+    if (libraryMatch) {
+      return libraryMatch;
+    }
+
     const tmdbMatch = await this.tmdbResolver.resolve({
-      kind: classification.kind,
+      kind: "tv_show",
       title: classification.title,
       year: classification.year,
-      season: classification.kind === "tv_show" ? classification.season : undefined,
-      episode: classification.kind === "tv_show" ? classification.episode : undefined,
-      episodeTitle: classification.kind === "tv_show" ? classification.episodeTitle : undefined,
+      season: classification.season,
+      episode: classification.episode,
+      episodeTitle: classification.episodeTitle,
     });
-
-    if (classification.kind === "film") {
-      const title = tmdbMatch?.kind === "film" ? tmdbMatch.title : classification.title;
-      const year = tmdbMatch?.kind === "film" ? tmdbMatch.year ?? classification.year : classification.year;
-
-      return {
-        kind: "film",
-        title,
-        displayTitle: formatDisplayTitle(title, year),
-        year,
-        plexIds: tmdbMatch?.kind === "film" ? tmdbMatch.plexIds : undefined,
-      };
-    }
 
     const title = tmdbMatch?.kind === "tv_show" ? tmdbMatch.title : classification.title;
     const year = tmdbMatch?.kind === "tv_show" ? tmdbMatch.year ?? classification.year : classification.year;
@@ -73,6 +101,153 @@ export class MediaMetadataService {
       episodeTitle: tmdbMatch?.kind === "tv_show" ? tmdbMatch.episodeTitle ?? classification.episodeTitle : classification.episodeTitle,
       plexIds: tmdbMatch?.kind === "tv_show" ? tmdbMatch.plexIds : undefined,
     };
+  }
+
+  private async resolveFilmMetadata(classification: {
+    kind: "film";
+    title: string;
+    year?: number;
+  }): Promise<PlexMetadata> {
+    const tmdbMatch = await this.tmdbResolver.resolve({
+      kind: "film",
+      title: classification.title,
+      year: classification.year,
+    });
+
+    const title = tmdbMatch?.kind === "film" ? tmdbMatch.title : classification.title;
+    const year = tmdbMatch?.kind === "film" ? tmdbMatch.year ?? classification.year : classification.year;
+
+    return {
+      kind: "film",
+      title,
+      displayTitle: formatDisplayTitle(title, year),
+      year,
+      plexIds: tmdbMatch?.kind === "film" ? tmdbMatch.plexIds : undefined,
+    };
+  }
+
+  private async resolveTvShowLibraryMatch(
+    classification: {
+      title: string;
+      year?: number;
+      season: number;
+      episode: number;
+      episodeTitle?: string;
+      libraryShowId?: string;
+    },
+    libraryShows: LibraryTvShow[],
+    context: MetadataResolveContext,
+  ): Promise<PlexMetadata | undefined> {
+    const normalizedTitle = normalizeMediaTitle(classification.title);
+    const deterministicMatches = findDeterministicLibraryMatches(classification.title, libraryShows);
+
+    let resolution: ShowLibraryResolution | undefined;
+
+    if (deterministicMatches.length === 1) {
+      resolution = { source: "library", showId: deterministicMatches[0].id };
+      this.logger.info("[classify] matched existing TV library folder", {
+        component: "classify",
+        handler: "download",
+        step: "library_match",
+        result: "deterministic",
+        match_count: 1,
+      });
+    } else if (deterministicMatches.length > 1) {
+      resolution = await this.resolveAmbiguousTvShow(classification.title, deterministicMatches, normalizedTitle, context);
+    } else if (classification.libraryShowId) {
+      const llmMatch = findLibraryShowById(libraryShows, classification.libraryShowId);
+
+      if (llmMatch) {
+        resolution = { source: "library", showId: llmMatch.id };
+        this.logger.info("[classify] matched existing TV library folder", {
+          component: "classify",
+          handler: "download",
+          step: "library_match",
+          result: "llm",
+          match_count: 1,
+        });
+      }
+    }
+
+    if (!resolution || resolution.source === "tmdb") {
+      return undefined;
+    }
+
+    const show = findLibraryShowById(libraryShows, resolution.showId);
+
+    if (!show) {
+      return undefined;
+    }
+
+    context.rememberTvShowChoice?.(normalizedTitle, resolution);
+
+    let episodeTitle = classification.episodeTitle;
+
+    if (show.plexIds.tmdb !== undefined) {
+      episodeTitle =
+        (await this.tmdbResolver.getEpisodeTitle(show.plexIds.tmdb, classification.season, classification.episode)) ??
+        episodeTitle;
+    }
+
+    const year = show.year ?? classification.year;
+
+    return {
+      kind: "tv_show",
+      title: show.title,
+      displayTitle: formatDisplayTitle(show.title, year),
+      year,
+      season: classification.season,
+      episode: classification.episode,
+      episodeTitle,
+      plexIds: show.plexIds,
+    };
+  }
+
+  private async resolveAmbiguousTvShow(
+    classifiedTitle: string,
+    candidates: LibraryTvShow[],
+    normalizedTitle: string,
+    context: MetadataResolveContext,
+  ): Promise<ShowLibraryResolution> {
+    const cached = context.getCachedTvShowChoice?.(normalizedTitle);
+
+    if (cached) {
+      this.logger.info("[classify] reused cached TV library choice", {
+        component: "classify",
+        handler: "download",
+        step: "library_match",
+        result: cached.source,
+      });
+      return cached;
+    }
+
+    if (!context.resolveAmbiguousTvShow) {
+      this.logger.warn("[classify] ambiguous TV library match without resolver; using TMDB", {
+        component: "classify",
+        handler: "download",
+        step: "library_match",
+        result: "ambiguous",
+        match_count: candidates.length,
+      });
+      return { source: "tmdb" };
+    }
+
+    const choice = await context.resolveAmbiguousTvShow({
+      classifiedTitle,
+      candidates,
+    });
+
+    context.rememberTvShowChoice?.(normalizedTitle, choice);
+
+    this.logger.info("[classify] resolved ambiguous TV library match", {
+      component: "classify",
+      handler: "download",
+      step: "library_match",
+      result: choice.source,
+      match_count: candidates.length,
+    });
+
+    return choice;
   }
 
   buildOutputPath(metadata: PlexMetadata, rootDirectory: string, fallbackFileName: string, extension: string): string {

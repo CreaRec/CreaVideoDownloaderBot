@@ -71,7 +71,65 @@ test("classify sends the configured request and normalizes a film response", asy
     assert.deepEqual(JSON.parse(request.messages[1].content), {
       filename: "movie.mp4",
       description: "A movie",
+      existingShows: null,
     });
+  });
+});
+
+test("classify includes existingShows in the OpenAI payload", async () => {
+  await withTempDir(async (dir) => {
+    const instructionsPath = path.join(dir, "instructions.md");
+    await writeFile(instructionsPath, "Classify media.", "utf8");
+
+    const fetchMock = mock.method(globalThis, "fetch", async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                kind: "tv_show",
+                title: "The Show",
+                year: 2008,
+                season: 1,
+                episode: 2,
+                episodeTitle: null,
+                existingShowId: "tvdb-1",
+                confidence: 0.95,
+                reason: "Matched library entry.",
+              }),
+            },
+          },
+        ],
+      }),
+    }));
+
+    const classifier = new MediaClassifier(
+      createSettings({ openai: { apiKey: "key", instructionsPath } }),
+      createLoggerSpy(),
+    );
+
+    const result = await classifier.classify({
+      description: "caption",
+      existingShows: [{ id: "tvdb-1", title: "The Show", year: 2008 }],
+    });
+
+    const request = JSON.parse(fetchMock.mock.calls[0].arguments[1]?.body as string) as {
+      messages: Array<{ content: string }>;
+    };
+
+    assert.deepEqual(result, {
+      kind: "tv_show",
+      title: "The Show",
+      year: 2008,
+      season: 1,
+      episode: 2,
+      libraryShowId: "tvdb-1",
+    });
+    assert.deepEqual(JSON.parse(request.messages[1].content).existingShows, [
+      { id: "tvdb-1", title: "The Show", year: 2008 },
+    ]);
   });
 });
 

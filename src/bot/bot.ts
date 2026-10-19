@@ -199,6 +199,11 @@ export class BotService {
       await this.downloadHandlers.handleDuplicateChoiceButton(ctx);
     });
 
+    this.bot.action(/^dl-show:/, async (ctx) => {
+      setUpdateHandler(ctx, "show_choice");
+      await this.downloadHandlers.handleShowChoiceButton(ctx);
+    });
+
     this.bot.on("message", async (ctx) => {
       setUpdateHandler(ctx, "help");
       this.logger.info("[bot] unhandled message type; sending help", {

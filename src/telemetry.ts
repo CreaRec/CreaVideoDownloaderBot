@@ -52,6 +52,7 @@ function inferHandler(ctx: Context): string {
     if (data.startsWith("file-tree:")) return "file_tree";
     if (data.startsWith("fix-meta:")) return "metadata_fix";
     if (data.startsWith("dl-dup:")) return "duplicate_choice";
+    if (data.startsWith("dl-show:")) return "show_choice";
     return "callback";
   }
 
