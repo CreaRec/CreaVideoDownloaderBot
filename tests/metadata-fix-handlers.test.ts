@@ -113,6 +113,7 @@ function createHandlers(options: {
   };
   hintParser?: {
     parse: (input: unknown) => Promise<unknown>;
+    guessTitleFromFilename?: (fileName: string) => Promise<{ title: string; year?: number } | undefined>;
   };
   renamer?: {
     renameFolder?: (folderPath: string, resolved: unknown) => Promise<{ renamed: unknown[]; skipped: unknown[] }>;
@@ -145,6 +146,9 @@ function createHandlers(options: {
     (options.hintParser ?? {
       async parse() {
         return { kind: "undefined", reason: "no hint" };
+      },
+      async guessTitleFromFilename() {
+        return undefined;
       },
     }) as never,
     (options.renamer ?? {
@@ -555,15 +559,115 @@ test("startMetadataFix rejects folders that cannot be fixed", async () => {
   });
 });
 
-test("startMetadataFix seeds a pending hint and asks for a correction", async () => {
+test("startMetadataFix auto-presents TMDB candidates from the file name", async () => {
   await withTempDir(async (tempDir) => {
     const answers: string[] = [];
+    const replies: Array<{ message: string; extra?: unknown }> = [];
+    const handlers = createHandlers({
+      tempDir,
+      fileTree: {
+        getRelativePathForToken: () => "Undefined/Испанский_английский_Перевод_1_Провайдер_2q480.mp4",
+        canFixMetadata: () => true,
+      },
+      tmdbResolver: {
+        async searchMixedCandidates() {
+          return [{ kind: "film", tmdbId: 687, title: "Spanglish", year: 2004, score: 120 }];
+        },
+        async resolveCandidateById() {
+          return undefined;
+        },
+      },
+    });
+
+    await handlers.startMetadataFix(
+      {
+        from: { id: 1234 },
+        reply: async (message: string, extra?: unknown) => {
+          replies.push({ message, extra });
+          return { message_id: replies.length };
+        },
+        answerCbQuery: async (message: string) => {
+          answers.push(message);
+        },
+      } as never,
+      "file-token",
+    );
+
+    assert.deepEqual(answers, ["Ищу в TMDB…"]);
+    assert.match(replies[0]?.message ?? "", /Исправление метаданных: Undefined\//);
+    assert.match(replies[1]?.message ?? "", /Выберите правильный тайтл/);
+    assert.match(replies[1]?.message ?? "", /Автопоиск/);
+    assert.ok(replies[1]?.extra);
+    assert.equal(handlers.getPendingFixHintForTests(1234), undefined);
+  });
+});
+
+test("startMetadataFix uses an LLM filename guess before presenting candidates", async () => {
+  await withTempDir(async (tempDir) => {
+    const replies: Array<{ message: string; extra?: unknown }> = [];
+    let searchCalls = 0;
+    const handlers = createHandlers({
+      tempDir,
+      fileTree: {
+        getRelativePathForToken: () => "Undefined/Испанский_английский.mp4",
+        canFixMetadata: () => true,
+      },
+      hintParser: {
+        async parse() {
+          return { kind: "undefined", reason: "unused" };
+        },
+        async guessTitleFromFilename() {
+          return { title: "Spanglish", year: 2004 };
+        },
+      },
+      tmdbResolver: {
+        async searchMixedCandidates(input: { query?: string }) {
+          searchCalls += 1;
+          if (input.query === "Spanglish") {
+            return [{ kind: "film", tmdbId: 687, title: "Spanglish", year: 2004, score: 120 }];
+          }
+          return [];
+        },
+        async resolveCandidateById() {
+          return undefined;
+        },
+      },
+    });
+
+    await handlers.startMetadataFix(
+      {
+        from: { id: 1234 },
+        reply: async (message: string, extra?: unknown) => {
+          replies.push({ message, extra });
+          return { message_id: replies.length };
+        },
+        answerCbQuery: async () => undefined,
+      } as never,
+      "file-token",
+    );
+
+    assert.ok(searchCalls >= 1);
+    assert.match(replies[1]?.message ?? "", /Угадывание: Spanglish \(2004\)/);
+    assert.ok(replies[1]?.extra);
+  });
+});
+
+test("startMetadataFix falls back to manual hint when auto search finds nothing", async () => {
+  await withTempDir(async (tempDir) => {
     const replies: string[] = [];
     const handlers = createHandlers({
       tempDir,
       fileTree: {
         getRelativePathForToken: () => "Movies/Demo",
         canFixMetadata: () => true,
+      },
+      tmdbResolver: {
+        async searchMixedCandidates() {
+          return [];
+        },
+        async resolveCandidateById() {
+          return undefined;
+        },
       },
     });
 
@@ -572,18 +676,15 @@ test("startMetadataFix seeds a pending hint and asks for a correction", async ()
         from: { id: 1234 },
         reply: async (message: string) => {
           replies.push(message);
-          return { message_id: 1 };
+          return { message_id: replies.length };
         },
-        answerCbQuery: async (message: string) => {
-          answers.push(message);
-        },
+        answerCbQuery: async () => undefined,
       } as never,
       "folder-token",
     );
 
-    assert.match(replies[0] ?? "", /Исправление метаданных: Movies\/Demo/);
-    assert.match(replies[0] ?? "", /IMDb/);
-    assert.match(answers[0] ?? "", /Жду подсказку/);
+    assert.match(replies[1] ?? "", /В TMDB ничего не найдено по названию из файла/);
+    assert.match(replies[1] ?? "", /IMDb/);
     assert.equal(handlers.getPendingFixHintForTests(1234)?.relativePath, "Movies/Demo");
   });
 });
