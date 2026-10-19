@@ -39,9 +39,9 @@ test("createCandidateReplyMarkup builds pick rows and a cancel button", () => {
     { kind: "film", tmdbId: 2, title: "Other", score: 1 },
   ]);
 
-  assert.equal(markup.reply_markup.inline_keyboard.length, 3);
+  assert.equal(markup.reply_markup.inline_keyboard.length, 4);
   const pickButton = markup.reply_markup.inline_keyboard[0]?.[0];
-  const cancelButton = markup.reply_markup.inline_keyboard[2]?.[0];
+  const cancelButton = markup.reply_markup.inline_keyboard[3]?.[0];
   assert.ok(pickButton && "callback_data" in pickButton);
   assert.ok(cancelButton && "callback_data" in cancelButton);
   assert.equal(pickButton.callback_data, `${FIX_META_CALLBACK_PREFIX}:pick:tok:1`);
@@ -84,7 +84,6 @@ test("pending fix hint and pick sessions expire after TTL", async () => {
 
     handlers.setPendingFixPickForTests(1, "token-1", {
       relativePath: "Movies/Demo",
-      kind: "film",
       candidates: [],
       expiresAt: Date.now() - 1,
     });
@@ -92,7 +91,6 @@ test("pending fix hint and pick sessions expire after TTL", async () => {
 
     handlers.setPendingFixPickForTests(1, "token-2", {
       relativePath: "Movies/Demo",
-      kind: "film",
       candidates: [{ kind: "film", tmdbId: 7, title: "Demo", score: 1 }],
       expiresAt: Date.now() + 60_000,
     });
@@ -108,7 +106,8 @@ function createHandlers(options: {
     resolveAbsolutePath?: (relativePath: string) => string;
   };
   tmdbResolver?: {
-    searchCandidates: (input: unknown) => Promise<unknown[]>;
+    searchCandidates?: (input: unknown) => Promise<unknown[]>;
+    searchMixedCandidates?: (input: unknown) => Promise<unknown[]>;
     findCandidatesByImdbId?: (imdbId: string) => Promise<unknown[]>;
     resolveCandidateById: (kind: string, tmdbId: number) => Promise<unknown>;
   };
@@ -116,7 +115,8 @@ function createHandlers(options: {
     parse: (input: unknown) => Promise<unknown>;
   };
   renamer?: {
-    renameFolder: (folderPath: string, resolved: unknown) => Promise<{ renamed: unknown[]; skipped: unknown[] }>;
+    renameFolder?: (folderPath: string, resolved: unknown) => Promise<{ renamed: unknown[]; skipped: unknown[] }>;
+    renameItem?: (itemPath: string, resolved: unknown, episode?: unknown) => Promise<{ renamed: unknown[]; skipped: unknown[] }>;
   };
 }): MetadataFixHandlers {
   const settings = createSettings({
@@ -130,6 +130,9 @@ function createHandlers(options: {
     (options.fileTree ?? new FileTreeBrowser(options.tempDir)) as never,
     (options.tmdbResolver ?? {
       async searchCandidates() {
+        return [];
+      },
+      async searchMixedCandidates() {
         return [];
       },
       async findCandidatesByImdbId() {
@@ -146,6 +149,9 @@ function createHandlers(options: {
     }) as never,
     (options.renamer ?? {
       async renameFolder() {
+        return { renamed: [], skipped: [] };
+      },
+      async renameItem() {
         return { renamed: [], skipped: [] };
       },
     }) as never,
@@ -192,7 +198,7 @@ test("tryHandleMetadataFixText processes a title hint and shows candidates", asy
         },
       },
       tmdbResolver: {
-        async searchCandidates() {
+        async searchMixedCandidates() {
           return [{ kind: "film", tmdbId: 1, title: "Inception", year: 2010, score: 10 }];
         },
         async findCandidatesByImdbId() {
@@ -216,9 +222,9 @@ test("tryHandleMetadataFixText processes a title hint and shows candidates", asy
 
     assert.equal(handled, true);
     assert.equal(handlers.getPendingFixHintForTests(1234), undefined);
-    assert.equal(replies[0]?.message, "Looking up TMDB matches...");
-    assert.match(replies[1]?.message ?? "", /Choose the correct film/);
-    assert.match(replies[1]?.message ?? "", /Search: Inception \(2010\)/);
+    assert.equal(replies[0]?.message, "Ищу варианты в TMDB…");
+    assert.match(replies[1]?.message ?? "", /Выберите правильный тайтл/);
+    assert.match(replies[1]?.message ?? "", /Поиск: Inception \(2010\)/);
     assert.ok(replies[1]?.extra);
   });
 });
@@ -261,7 +267,7 @@ test("tryHandleMetadataFixText looks up an IMDb URL without calling the hint par
 
     assert.equal(handled, true);
     assert.equal(hintParserCalls, 0);
-    assert.match(replies[1]?.message ?? "", /Choose the correct film/);
+    assert.match(replies[1]?.message ?? "", /Выберите правильный тайтл/);
     assert.match(replies[1]?.message ?? "", /IMDb: tt27200708/);
     assert.ok(replies[1]?.extra);
   });
@@ -328,8 +334,8 @@ test("tryHandleMetadataFixText reports when an IMDb id has no TMDB match", async
       },
     } as never);
 
-    assert.equal(replies[0], "Looking up TMDB matches...");
-    assert.equal(replies[1], "No TMDB match found for IMDb ID tt0000001.");
+    assert.equal(replies[0], "Ищу варианты в TMDB…");
+    assert.equal(replies[1], "В TMDB нет совпадений для IMDb ID tt0000001.");
   });
 });
 
@@ -355,8 +361,8 @@ test("tryHandleMetadataFixText reports when the correction cannot be understood"
       },
     } as never);
 
-    assert.equal(replies[0], "Looking up TMDB matches...");
-    assert.match(replies[1] ?? "", /Could not understand the correction: unclear screenshot/);
+    assert.equal(replies[0], "Ищу варианты в TMDB…");
+    assert.match(replies[1] ?? "", /В TMDB ничего не найдено по запросу «\?\?\?»/);
   });
 });
 
@@ -371,7 +377,7 @@ test("tryHandleMetadataFixText reports when no TMDB matches are found", async ()
         },
       },
       tmdbResolver: {
-        async searchCandidates() {
+        async searchMixedCandidates() {
           return [];
         },
         async resolveCandidateById() {
@@ -390,7 +396,7 @@ test("tryHandleMetadataFixText reports when no TMDB matches are found", async ()
       },
     } as never);
 
-    assert.match(replies[1] ?? "", /No TMDB matches found for TV show "Unknown Show" \(1999\)/);
+    assert.match(replies[1] ?? "", /В TMDB ничего не найдено по запросу «Unknown Show»/);
   });
 });
 
@@ -417,7 +423,6 @@ test("handleMetadataFixButton rejects expired pick tokens", async () => {
     const handlers = createHandlers({ tempDir });
     handlers.setPendingFixPickForTests(1234, "tok", {
       relativePath: "Movies/Demo",
-      kind: "film",
       candidates: [{ kind: "film", tmdbId: 1, title: "Demo", score: 1 }],
       expiresAt: Date.now() - 1,
     });
@@ -430,7 +435,7 @@ test("handleMetadataFixButton rejects expired pick tokens", async () => {
       },
     } as never);
 
-    assert.deepEqual(answers, ["Fix selection is no longer available."]);
+    assert.deepEqual(answers, ["Сессия выбора истекла."]);
   });
 });
 
@@ -441,7 +446,6 @@ test("handleMetadataFixButton cancel clears the pick and edits the message", asy
     const handlers = createHandlers({ tempDir });
     handlers.setPendingFixPickForTests(1234, "tok", {
       relativePath: "Movies/Demo",
-      kind: "film",
       candidates: [{ kind: "film", tmdbId: 1, title: "Demo", score: 1 }],
     });
 
@@ -461,8 +465,8 @@ test("handleMetadataFixButton cancel clears the pick and edits the message", asy
       },
     } as never);
 
-    assert.deepEqual(edits, ["Metadata fix cancelled."]);
-    assert.deepEqual(answers, ["Cancelled."]);
+    assert.deepEqual(edits, ["Исправление метаданных отменено."]);
+    assert.deepEqual(answers, ["Отменено."]);
     assert.equal(handlers.getPendingFixPickForTests("tok"), undefined);
   });
 });
@@ -489,17 +493,17 @@ test("handleMetadataFixButton pick applies rename and shows a summary", async ()
         },
       },
       renamer: {
-        async renameFolder() {
+        async renameItem() {
+          const target = path.join(tempDir, "Movies", "Inception (2010)", "Inception (2010).mkv");
           return {
-            renamed: [{ from: path.join(folderPath, "a.mkv"), to: "Inception (2010).mkv" }],
-            skipped: [{ path: path.join(folderPath, "note.txt"), reason: "unsupported" }],
+            renamed: [{ from: path.join(folderPath, "a.mkv"), to: target }],
+            skipped: [],
           };
         },
       },
     });
     handlers.setPendingFixPickForTests(1234, "tok", {
       relativePath: "Movies/Demo",
-      kind: "film",
       candidates: [{ kind: "film", tmdbId: 1, title: "Inception", year: 2010, score: 10 }],
     });
 
@@ -519,11 +523,9 @@ test("handleMetadataFixButton pick applies rename and shows a summary", async ()
       },
     } as never);
 
-    assert.deepEqual(answers, ["Applying metadata..."]);
-    assert.match(edits[0] ?? "", /Applied film: Inception \(2010\)/);
-    assert.match(edits[0] ?? "", /Renamed: 1/);
-    assert.match(edits[0] ?? "", /Skipped: 1/);
-    assert.match(edits[0] ?? "", /a\.mkv → Inception \(2010\)\.mkv/);
+    assert.deepEqual(answers, ["Применяю…"]);
+    assert.match(edits[0] ?? "", /Перенёс в Movies\/Inception \(2010\)/);
+    assert.match(edits[0] ?? "", /как Inception \(2010\)/);
   });
 });
 
@@ -549,7 +551,7 @@ test("startMetadataFix rejects folders that cannot be fixed", async () => {
       "root-token",
     );
 
-    assert.deepEqual(answers, ["This folder cannot be fixed."]);
+    assert.deepEqual(answers, ["Для этого файла нельзя исправить метаданные."]);
   });
 });
 
@@ -579,9 +581,9 @@ test("startMetadataFix seeds a pending hint and asks for a correction", async ()
       "folder-token",
     );
 
-    assert.match(replies[0] ?? "", /Fix metadata for folder: Movies\/Demo/);
-    assert.match(replies[0] ?? "", /IMDb link\/ID/);
-    assert.deepEqual(answers, ["Send a correction hint."]);
+    assert.match(replies[0] ?? "", /Исправление метаданных: Movies\/Demo/);
+    assert.match(replies[0] ?? "", /IMDb/);
+    assert.match(answers[0] ?? "", /Жду подсказку/);
     assert.equal(handlers.getPendingFixHintForTests(1234)?.relativePath, "Movies/Demo");
   });
 });

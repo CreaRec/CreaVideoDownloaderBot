@@ -5,7 +5,7 @@ import type { Settings } from "../config/settings.js";
 import { isConfiguredUser } from "../config/settings.js";
 
 export type TelegramStatusMessage = { message_id?: number };
-export type ReplyFn = (message: string) => Promise<TelegramStatusMessage>;
+export type ReplyFn = (message: string, extra?: object) => Promise<TelegramStatusMessage>;
 export type CallbackMessage = { message_id: number; chat: { id: number }; text?: string };
 
 export interface MainReplyKeyboard {
@@ -75,9 +75,14 @@ export function getCommandArgument(ctx: Context): string | undefined {
   return argument || undefined;
 }
 
-export async function safeReply(reply: ReplyFn, logger: Logger, message: string): Promise<TelegramStatusMessage | undefined> {
+export async function safeReply(
+  reply: ReplyFn,
+  logger: Logger,
+  message: string,
+  extra?: object,
+): Promise<TelegramStatusMessage | undefined> {
   try {
-    return await reply(message);
+    return await reply(message, extra);
   } catch (error) {
     logger.exception("[telegram] failed to send reply", error, {
       component: "telegram",

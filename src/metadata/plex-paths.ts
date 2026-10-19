@@ -185,3 +185,15 @@ export function buildTvShowPath(input: PlexTvShowPathInput): string {
 export function buildUndefinedPath(rootDirectory: string, fallbackFileName: string): string {
   return path.join(rootDirectory, PLEX_UNDEFINED_DIR, fallbackFileName);
 }
+
+/** Plex-visible holding folder when automatic metadata is unknown (not the legacy Undefined root). */
+export function buildUnrecognizedMoviePath(
+  rootDirectory: string,
+  displayName: string,
+  fileName: string,
+): string {
+  const folderName = sanitizePlexName(displayName);
+  const safeFileName = sanitizePlexName(fileName) || sanitizeLegacyFileName(fileName);
+
+  return path.join(rootDirectory, PLEX_MOVIES_DIR, folderName, safeFileName);
+}

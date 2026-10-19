@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
-import { FileTreeBrowser, isPathInsideDirectory, type FileTreeView } from "../src/files/file-tree.js";
+import {
+  FileTreeBrowser,
+  FIX_METADATA_BUTTON_TEXT,
+  isPathInsideDirectory,
+  type FileTreeView,
+} from "../src/files/file-tree.js";
 import { withTempDir } from "./helpers/test-utils.js";
 
 test("reset clears cached file tree tokens", async () => {
@@ -109,7 +114,7 @@ test("/files tree can browse protected roots and delete nested folders", async (
 
     const selectedNested = await browser.renderSelectedToken(nestedCallback.token);
     assert.equal(hasButton(selectedNested, "Open"), true);
-    assert.equal(hasButton(selectedNested, "Fix metadata"), true);
+    assert.equal(hasButton(selectedNested, FIX_METADATA_BUTTON_TEXT), true);
     assert.equal(hasButton(selectedNested, "Move to Kids"), true);
     assert.equal(hasButton(selectedNested, "Delete"), true);
 
@@ -125,7 +130,7 @@ test("/files tree can browse protected roots and delete nested folders", async (
   });
 });
 
-test("/files tree shows Fix metadata on folders but not protected roots or files", async () => {
+test("/files tree shows metadata fix on folders and media files but not protected roots", async () => {
   await withTempDir(async (dir) => {
     const nestedFolder = path.join(dir, "Undefined", "Wrong Title");
     await mkdir(nestedFolder, { recursive: true });
@@ -138,7 +143,7 @@ test("/files tree shows Fix metadata on folders but not protected roots or files
     const moviesCallback = browser.parseCallbackData(findButton(rootView, "Folder Movies").callback_data);
     assert.ok(moviesCallback);
     const selectedMovies = await browser.renderSelectedToken(moviesCallback.token);
-    assert.equal(hasButton(selectedMovies, "Fix metadata"), false);
+    assert.equal(hasButton(selectedMovies, FIX_METADATA_BUTTON_TEXT), false);
 
     const undefinedCallback = browser.parseCallbackData(findButton(rootView, "Folder Undefined").callback_data);
     assert.ok(undefinedCallback);
@@ -151,8 +156,8 @@ test("/files tree shows Fix metadata on folders but not protected roots or files
     assert.ok(folderCallback);
 
     const selectedFolder = await browser.renderSelectedToken(folderCallback.token);
-    assert.equal(hasButton(selectedFolder, "Fix metadata"), true);
-    const fixCallback = browser.parseCallbackData(findButton(selectedFolder, "Fix metadata").callback_data);
+    assert.equal(hasButton(selectedFolder, FIX_METADATA_BUTTON_TEXT), true);
+    const fixCallback = browser.parseCallbackData(findButton(selectedFolder, FIX_METADATA_BUTTON_TEXT).callback_data);
     assert.ok(fixCallback);
     assert.equal(fixCallback.action, "fix");
 
@@ -162,7 +167,7 @@ test("/files tree shows Fix metadata on folders but not protected roots or files
     const fileCallback = browser.parseCallbackData(findButton(folderView, "File clip.mp4").callback_data);
     assert.ok(fileCallback);
     const selectedFile = await browser.renderSelectedToken(fileCallback.token);
-    assert.equal(hasButton(selectedFile, "Fix metadata"), false);
+    assert.equal(hasButton(selectedFile, FIX_METADATA_BUTTON_TEXT), true);
   });
 });
 

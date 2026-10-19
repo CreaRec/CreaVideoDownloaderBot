@@ -1,8 +1,16 @@
+import path from "node:path";
 import type { Logger } from "../config/logger.js";
 import type { MediaClassificationInput } from "./media-classifier.js";
 import { MediaClassifier } from "./media-classifier.js";
 import type { Settings } from "../config/settings.js";
-import { buildMoviePath, buildTvShowPath, buildUndefinedPath, sanitizeLegacyFileName, type PlexIds } from "./plex-paths.js";
+import {
+  buildMoviePath,
+  buildTvShowPath,
+  buildUnrecognizedMoviePath,
+  sanitizeLegacyFileName,
+  type PlexIds,
+} from "./plex-paths.js";
+import { applyTmdbFallbackWhenNeeded } from "./tmdb-fallback.js";
 import { TmdbResolver } from "./tmdb-resolver.js";
 import { normalizeMediaTitle } from "./title-normalize.js";
 import {
@@ -15,7 +23,7 @@ import {
 } from "./tv-library-catalog.js";
 
 export interface PlexMetadata {
-  kind: "film" | "tv_show" | "undefined";
+  kind: "film" | "tv_show" | "unrecognized";
   title?: string;
   displayTitle?: string;
   year?: number;
@@ -24,6 +32,8 @@ export interface PlexMetadata {
   episodeTitle?: string;
   plexIds?: PlexIds;
   reason?: string;
+  displayName?: string;
+  classificationReason?: string;
 }
 
 export interface MetadataResolveInput extends MediaClassificationInput {}
@@ -66,11 +76,36 @@ export class MediaMetadataService {
     });
 
     if (classification.kind === "undefined") {
-      return { kind: "undefined", reason: classification.reason };
+      const fallback = await applyTmdbFallbackWhenNeeded(classification, input, this.tmdbResolver);
+
+      if (fallback.metadata.kind !== "unrecognized") {
+        if (fallback.metadata.kind === "tv_show") {
+          const libraryMatch = await this.resolveTvShowLibraryMatch(
+            {
+              title: fallback.metadata.title!,
+              year: fallback.metadata.year,
+              season: fallback.metadata.season!,
+              episode: fallback.metadata.episode!,
+              episodeTitle: fallback.metadata.episodeTitle,
+            },
+            libraryShows,
+            context,
+          );
+
+          if (libraryMatch) {
+            return { ...libraryMatch, classificationReason: fallback.metadata.classificationReason };
+          }
+        }
+
+        return fallback.metadata;
+      }
+
+      return fallback.metadata;
     }
 
     if (classification.kind === "film") {
-      return this.resolveFilmMetadata(classification);
+      const film = await this.resolveFilmMetadata(classification);
+      return { ...film, classificationReason: "classified" };
     }
 
     const libraryMatch = await this.resolveTvShowLibraryMatch(classification, libraryShows, context);
@@ -100,6 +135,7 @@ export class MediaMetadataService {
       episode: classification.episode,
       episodeTitle: tmdbMatch?.kind === "tv_show" ? tmdbMatch.episodeTitle ?? classification.episodeTitle : classification.episodeTitle,
       plexIds: tmdbMatch?.kind === "tv_show" ? tmdbMatch.plexIds : undefined,
+      classificationReason: "classified",
     };
   }
 
@@ -123,6 +159,7 @@ export class MediaMetadataService {
       displayTitle: formatDisplayTitle(title, year),
       year,
       plexIds: tmdbMatch?.kind === "film" ? tmdbMatch.plexIds : undefined,
+      classificationReason: "classified",
     };
   }
 
@@ -200,6 +237,7 @@ export class MediaMetadataService {
       episode: classification.episode,
       episodeTitle,
       plexIds: show.plexIds,
+      classificationReason: "classified",
     };
   }
 
@@ -274,7 +312,11 @@ export class MediaMetadataService {
       });
     }
 
-    return buildUndefinedPath(rootDirectory, fallbackFileName);
+    if (metadata.kind === "unrecognized" && metadata.displayName) {
+      return buildUnrecognizedMoviePath(rootDirectory, metadata.displayName, path.basename(fallbackFileName));
+    }
+
+    return buildUnrecognizedMoviePath(rootDirectory, metadata.displayName ?? "Unknown", path.basename(fallbackFileName));
   }
 }
 

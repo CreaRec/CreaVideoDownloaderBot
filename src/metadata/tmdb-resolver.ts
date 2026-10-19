@@ -59,6 +59,12 @@ export interface TmdbSearchCandidatesInput {
   limit?: number;
 }
 
+export interface TmdbMixedSearchInput {
+  query: string;
+  year?: number;
+  limit?: number;
+}
+
 export interface TmdbCandidate {
   kind: "film" | "tv_show";
   tmdbId: number;
@@ -168,6 +174,57 @@ export class TmdbResolver {
         episode,
       });
       return undefined;
+    }
+  }
+
+  async searchMixedCandidates(input: TmdbMixedSearchInput): Promise<TmdbCandidate[]> {
+    if (!this.settings.tmdb.apiKey) {
+      return [];
+    }
+
+    const limit = Math.max(1, input.limit ?? DEFAULT_CANDIDATE_LIMIT);
+
+    try {
+      const searchResults = await this.tmdbFetch<TmdbSearchMultiResponse>("/search/multi", {
+        query: input.query,
+      });
+
+      const movies: TmdbSearchMovieResult[] = [];
+      const shows: TmdbSearchTvResult[] = [];
+
+      for (const result of searchResults.results ?? []) {
+        if (result.media_type === "movie") {
+          movies.push({
+            id: result.id,
+            title: result.title ?? result.name ?? "",
+            original_title: result.original_title ?? result.original_name,
+            release_date: result.release_date ?? result.first_air_date,
+            popularity: result.popularity,
+          });
+        } else if (result.media_type === "tv") {
+          shows.push({
+            id: result.id,
+            name: result.name ?? result.title ?? "",
+            original_name: result.original_name ?? result.original_title,
+            first_air_date: result.first_air_date ?? result.release_date,
+            popularity: result.popularity,
+          });
+        }
+      }
+
+      const ranked = [
+        ...rankMovieCandidates(movies, input.query, input.year),
+        ...rankTvCandidates(shows, input.query, input.year),
+      ].sort((left, right) => right.score - left.score);
+
+      return ranked.slice(0, limit);
+    } catch (error) {
+      this.logger.exception("[tmdb] mixed candidate search failed", error, {
+        component: "tmdb",
+        step: "search_mixed",
+        error_type: "tmdb",
+      });
+      return [];
     }
   }
 
@@ -394,6 +451,22 @@ interface TmdbSearchTvResult {
 
 interface TmdbSearchTvResponse {
   results: TmdbSearchTvResult[];
+}
+
+interface TmdbSearchMultiResult {
+  id: number;
+  media_type?: string;
+  title?: string;
+  name?: string;
+  original_title?: string;
+  original_name?: string;
+  release_date?: string;
+  first_air_date?: string;
+  popularity?: number;
+}
+
+interface TmdbSearchMultiResponse {
+  results: TmdbSearchMultiResult[];
 }
 
 interface TmdbFindResponse {

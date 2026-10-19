@@ -5,6 +5,7 @@ import {
   buildMoviePath,
   buildTvShowPath,
   buildUndefinedPath,
+  buildUnrecognizedMoviePath,
   formatEpisodeTag,
   formatPlexIdTags,
   formatPlexTitle,
@@ -87,6 +88,13 @@ test("buildTvShowPath creates Plex TV folders with episode title", () => {
 
 test("buildUndefinedPath keeps legacy fallback names", () => {
   assert.equal(buildUndefinedPath("/video", "bad_name_.mkv"), path.join("/video", "Undefined", "bad_name_.mkv"));
+});
+
+test("buildUnrecognizedMoviePath stores media under Movies with a display folder", () => {
+  assert.equal(
+    buildUnrecognizedMoviePath("/video", "Spanglish", "clip.mp4"),
+    path.join("/video", "Movies", "Spanglish", "clip.mp4"),
+  );
 });
 
 test("sanitizePlexName keeps spaces and removes forbidden characters", () => {

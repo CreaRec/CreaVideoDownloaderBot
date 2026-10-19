@@ -34,7 +34,32 @@ export class MetadataFixRenamer {
     private readonly mediaClassifier?: MediaClassifier,
   ) {}
 
-  async renameFolder(folderPath: string, resolved: TmdbResolvedTitle): Promise<MetadataFixRenameResult> {
+  async renameItem(
+    itemPath: string,
+    resolved: TmdbResolvedTitle,
+    episode?: { season: number; episode: number },
+  ): Promise<MetadataFixRenameResult> {
+    const rootDirectory = path.resolve(this.settings.download.directory);
+    const resolvedItem = path.resolve(itemPath);
+
+    if (!isPathInsideDirectory(resolvedItem, rootDirectory)) {
+      throw new Error("Refusing to rename a path outside the configured download directory.");
+    }
+
+    const itemStat = await stat(resolvedItem);
+
+    if (itemStat.isFile()) {
+      return this.renameSingleMediaFile(resolvedItem, resolved, episode);
+    }
+
+    return this.renameFolder(resolvedItem, resolved, episode);
+  }
+
+  async renameFolder(
+    folderPath: string,
+    resolved: TmdbResolvedTitle,
+    episodeOverride?: { season: number; episode: number },
+  ): Promise<MetadataFixRenameResult> {
     const rootDirectory = path.resolve(this.settings.download.directory);
     const resolvedFolder = path.resolve(folderPath);
 
@@ -49,7 +74,7 @@ export class MetadataFixRenamer {
 
     for (const mediaFile of mediaFiles) {
       try {
-        const targetPath = await this.buildTargetPath(mediaFile, resolved);
+        const targetPath = await this.buildTargetPath(mediaFile, resolved, episodeOverride);
 
         if (path.resolve(mediaFile) === path.resolve(targetPath)) {
           skipped.push({ path: mediaFile, reason: "Already at the correct path." });
@@ -83,7 +108,44 @@ export class MetadataFixRenamer {
     return { renamed, skipped };
   }
 
-  private async buildTargetPath(mediaFile: string, resolved: TmdbResolvedTitle): Promise<string> {
+  private async renameSingleMediaFile(
+    mediaFile: string,
+    resolved: TmdbResolvedTitle,
+    episodeOverride?: { season: number; episode: number },
+  ): Promise<MetadataFixRenameResult> {
+    const rootDirectory = path.resolve(this.settings.download.directory);
+    const renamed: MetadataFixRenameResult["renamed"] = [];
+    const skipped: MetadataFixRenameResult["skipped"] = [];
+
+    try {
+      const targetPath = await this.buildTargetPath(mediaFile, resolved, episodeOverride);
+
+      if (path.resolve(mediaFile) === path.resolve(targetPath)) {
+        skipped.push({ path: mediaFile, reason: "Already at the correct path." });
+        return { renamed, skipped };
+      }
+
+      await mkdir(path.dirname(targetPath), { recursive: true });
+      const availablePath = this.settings.download.overwriteExisting
+        ? targetPath
+        : await getAvailablePath(targetPath);
+
+      await rename(mediaFile, availablePath);
+      renamed.push({ from: mediaFile, to: availablePath });
+      await pruneEmptyParentDirectories(mediaFile, rootDirectory);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      skipped.push({ path: mediaFile, reason });
+    }
+
+    return { renamed, skipped };
+  }
+
+  private async buildTargetPath(
+    mediaFile: string,
+    resolved: TmdbResolvedTitle,
+    episodeOverride?: { season: number; episode: number },
+  ): Promise<string> {
     const extension = path.extname(mediaFile) || ".mp4";
     const rootDirectory = this.settings.download.directory;
 
@@ -97,7 +159,9 @@ export class MetadataFixRenamer {
       });
     }
 
-    const episode = await this.resolveEpisode(mediaFile, resolved);
+    const episode =
+      episodeOverride ??
+      (await this.resolveEpisode(mediaFile, resolved));
 
     if (!episode) {
       throw new Error("Could not determine season/episode from the file name.");

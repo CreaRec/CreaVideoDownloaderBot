@@ -64,7 +64,7 @@ test("DownloadHandlers shows Queued when the user media download is already busy
       async prepareDownload() {
         return {
           message: {},
-          metadata: { kind: "undefined" as const, reason: "test" },
+          metadata: { kind: "unrecognized" as const, reason: "test", displayName: "test" },
           canonicalPath: path.join(tempDir, "clip.mp4"),
         };
       },

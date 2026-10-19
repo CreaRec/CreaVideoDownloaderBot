@@ -18,6 +18,31 @@ test("parseSeasonEpisode reads common episode tags", () => {
   assert.equal(parseSeasonEpisode("movie.mp4"), undefined);
 });
 
+test("renameItem moves a single media file into the Plex movie path", async () => {
+  await withTempDir(async (dir) => {
+    const provisionalFolder = path.join(dir, "Movies", "Mystery");
+    await mkdir(provisionalFolder, { recursive: true });
+    const sourceFile = path.join(provisionalFolder, "clip.mp4");
+    await writeFile(sourceFile, "video", "utf8");
+
+    const renamer = new MetadataFixRenamer(
+      createSettings({ download: { directory: dir, overwriteExisting: false } }),
+      createLoggerSpy(),
+      new TmdbResolver(createSettings({ tmdb: { apiKey: "tmdb-key" } }), createLoggerSpy()),
+    );
+
+    const result = await renamer.renameItem(sourceFile, {
+      kind: "film",
+      title: "Inception",
+      year: 2010,
+      plexIds: { imdb: "tt1375666", tmdb: 27205 },
+    });
+
+    assert.equal(result.renamed.length, 1);
+    assert.match(result.renamed[0].to, /Movies[/\\]Inception \(2010\)/);
+  });
+});
+
 test("renameFolder moves a film into the Plex movie path", async () => {
   await withTempDir(async (dir) => {
     const sourceFolder = path.join(dir, "Undefined", "Wrong Movie");
