@@ -58,7 +58,7 @@ export class MetadataFixRenamer {
   async renameFolder(
     folderPath: string,
     resolved: TmdbResolvedTitle,
-    episodeOverride?: { season: number; episode: number },
+    episodeOverride?: { season: number; episode: number; episodeTitle?: string },
   ): Promise<MetadataFixRenameResult> {
     const rootDirectory = path.resolve(this.settings.download.directory);
     const resolvedFolder = path.resolve(folderPath);
@@ -111,7 +111,7 @@ export class MetadataFixRenamer {
   private async renameSingleMediaFile(
     mediaFile: string,
     resolved: TmdbResolvedTitle,
-    episodeOverride?: { season: number; episode: number },
+    episodeOverride?: { season: number; episode: number; episodeTitle?: string },
   ): Promise<MetadataFixRenameResult> {
     const rootDirectory = path.resolve(this.settings.download.directory);
     const renamed: MetadataFixRenameResult["renamed"] = [];
@@ -144,7 +144,7 @@ export class MetadataFixRenamer {
   private async buildTargetPath(
     mediaFile: string,
     resolved: TmdbResolvedTitle,
-    episodeOverride?: { season: number; episode: number },
+    episodeOverride?: { season: number; episode: number; episodeTitle?: string },
   ): Promise<string> {
     const extension = path.extname(mediaFile) || ".mp4";
     const rootDirectory = this.settings.download.directory;

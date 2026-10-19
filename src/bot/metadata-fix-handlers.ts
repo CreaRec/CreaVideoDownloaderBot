@@ -464,11 +464,21 @@ export class MetadataFixHandlers {
       return resolved;
     }
 
+    const tmdbId = show.plexIds.tmdb ?? resolved.plexIds.tmdb;
+
+    if (tmdbId === undefined) {
+      return resolved;
+    }
+
     return {
       kind: "tv_show",
       title: show.title,
       year: show.year ?? resolved.year,
-      plexIds: show.plexIds,
+      plexIds: {
+        ...resolved.plexIds,
+        ...show.plexIds,
+        tmdb: tmdbId,
+      },
     };
   }
 
