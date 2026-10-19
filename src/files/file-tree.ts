@@ -14,6 +14,9 @@ import {
   canMoveRelativePathToKids,
   movePathToKids,
 } from "./kids-move.js";
+import { isMediaFileName } from "../metadata/metadata-fix-renamer.js";
+
+export const FIX_METADATA_BUTTON_TEXT = "Исправить метаданные";
 
 export { isPathInsideDirectory } from "../download/download-paths.js";
 
@@ -102,13 +105,13 @@ export class FileTreeBrowser {
     const itemPath = this.resolvePath(relativePath);
     const itemStat = await stat(itemPath);
     const parentPath = getParentRelativePath(relativePath);
-    const canFix = itemStat.isDirectory() && this.canFixMetadata(relativePath);
+    const canFix = this.canFixMetadata(relativePath);
     const canMove = itemStat.isDirectory() && this.canMoveToKids(relativePath);
     const rows = [
       ...(itemStat.isDirectory()
         ? [[button("Open", createCallbackData("open", this.getOrCreateToken(relativePath)))]]
         : []),
-      ...(canFix ? [[button("Fix metadata", createCallbackData("fix", this.getOrCreateToken(relativePath)))]] : []),
+      ...(canFix ? [[button(FIX_METADATA_BUTTON_TEXT, createCallbackData("fix", this.getOrCreateToken(relativePath)))]] : []),
       ...(canMove ? [[button("Move to Kids", createCallbackData("move", this.getOrCreateToken(relativePath)))]] : []),
       ...(this.canDelete(relativePath)
         ? [[button("Delete", createCallbackData("delete", this.getOrCreateToken(relativePath)))]]
@@ -132,7 +135,17 @@ export class FileTreeBrowser {
   }
 
   canFixMetadata(relativePath: string): boolean {
-    return relativePath !== "" && !isProtectedRoot(relativePath);
+    if (relativePath === "" || isProtectedRoot(relativePath)) {
+      return false;
+    }
+
+    const baseName = path.basename(relativePath);
+
+    if (baseName.includes(".")) {
+      return isMediaFileName(baseName);
+    }
+
+    return true;
   }
 
   canMoveToKids(relativePath: string): boolean {

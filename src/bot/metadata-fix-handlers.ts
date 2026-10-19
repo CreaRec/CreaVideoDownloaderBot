@@ -5,9 +5,10 @@ import type { InlineKeyboardMarkup } from "telegraf/types";
 import type { FileTreeBrowser } from "../files/file-tree.js";
 import type { Logger } from "../config/logger.js";
 import { truncateForLog } from "../config/logger.js";
+import { cleanDownloadTitle } from "../metadata/filename-title.js";
 import { parseImdbId } from "../metadata/imdb-id.js";
 import type { MetadataFixHintParser } from "../metadata/metadata-fix-hint.js";
-import type { MetadataFixRenamer } from "../metadata/metadata-fix-renamer.js";
+import { parseSeasonEpisode, type MetadataFixRenamer } from "../metadata/metadata-fix-renamer.js";
 import type { Settings } from "../config/settings.js";
 import {
   answerCallback as answerCallbackQuery,
@@ -18,11 +19,20 @@ import {
   getCallbackMessage,
   isAllowedUser,
   isFilesButtonText,
+  type ReplyFn,
 } from "../telegram/telegram-ctx.js";
-import type { TmdbCandidate, TmdbResolver } from "../metadata/tmdb-resolver.js";
+import type { TmdbCandidate, TmdbResolvedTitle, TmdbResolver } from "../metadata/tmdb-resolver.js";
+import {
+  findDeterministicLibraryMatches,
+  findLibraryShowById,
+  TvLibraryCatalog,
+} from "../metadata/tv-library-catalog.js";
+import { formatDisplayTitle } from "../metadata/media-metadata.js";
+import type { PlexMetadata } from "../metadata/media-metadata.js";
 
 const METADATA_FIX_TTL_MS = 15 * 60 * 1000;
 export const FIX_META_CALLBACK_PREFIX = "fix-meta";
+export const CHOOSE_TMDB_BUTTON_TEXT = "Выбрать в TMDB";
 
 interface PendingFixHint {
   relativePath: string;
@@ -31,19 +41,35 @@ interface PendingFixHint {
 
 interface PendingFixPick {
   relativePath: string;
-  kind: "film" | "tv_show";
   candidates: TmdbCandidate[];
+  expiresAt: number;
+}
+
+interface PendingFixStart {
+  relativePath: string;
+  searchQuery: string;
+  expiresAt: number;
+}
+
+interface PendingFixEpisode {
+  relativePath: string;
+  resolved: TmdbResolvedTitle;
   expiresAt: number;
 }
 
 export type FixMetaCallback =
   | { action: "pick"; token: string; tmdbId: number }
-  | { action: "cancel"; token: string };
+  | { action: "cancel"; token: string }
+  | { action: "manual"; token: string }
+  | { action: "start"; token: string };
 
 export class MetadataFixHandlers {
   private readonly pendingFixHintByUserId = new Map<number, PendingFixHint>();
   private readonly pendingFixPickByToken = new Map<string, PendingFixPick>();
   private readonly pendingFixPickTokenByUserId = new Map<number, string>();
+  private readonly pendingFixStartByToken = new Map<string, PendingFixStart>();
+  private readonly pendingFixEpisodeByUserId = new Map<number, PendingFixEpisode>();
+  private readonly tvLibraryCatalog: TvLibraryCatalog;
 
   constructor(
     private readonly settings: Settings,
@@ -52,7 +78,10 @@ export class MetadataFixHandlers {
     private readonly tmdbResolver: TmdbResolver,
     private readonly metadataFixHintParser: MetadataFixHintParser,
     private readonly metadataFixRenamer: MetadataFixRenamer,
-  ) {}
+    tvLibraryCatalog?: TvLibraryCatalog,
+  ) {
+    this.tvLibraryCatalog = tvLibraryCatalog ?? new TvLibraryCatalog(settings, logger);
+  }
 
   async startMetadataFix(ctx: Context, token: string): Promise<void> {
     const userId = ctx.from?.id;
@@ -65,7 +94,7 @@ export class MetadataFixHandlers {
     const relativePath = this.fileTree.getRelativePathForToken(token);
 
     if (!this.fileTree.canFixMetadata(relativePath)) {
-      await this.answerCallback(ctx, "This folder cannot be fixed.");
+      await this.answerCallback(ctx, "Для этого файла нельзя исправить метаданные.");
       return;
     }
 
@@ -82,14 +111,57 @@ export class MetadataFixHandlers {
       folder_name: formatRelativePath(relativePath),
     });
 
+    const itemLabel = path.basename(relativePath) || relativePath;
+
     await ctx.reply(
       [
-        `Fix metadata for folder: ${formatRelativePath(relativePath)}`,
-        "Send the correct title as text and/or a screenshot, or an IMDb link/ID.",
-        "I will show TMDB matches for you to choose from.",
+        `Исправление метаданных: ${formatRelativePath(relativePath)}`,
+        "Отправьте правильное название текстом, скриншот или ссылку/ID IMDb.",
+        "Покажу варианты из TMDB для выбора.",
       ].join("\n"),
     );
-    await this.answerCallback(ctx, "Send a correction hint.");
+    await this.answerCallback(ctx, `Жду подсказку для «${itemLabel}».`);
+  }
+
+  async notifyUnrecognizedDownload(
+    reply: ReplyFn,
+    relativePath: string,
+    metadata: PlexMetadata,
+  ): Promise<void> {
+    if (metadata.kind !== "unrecognized") {
+      return;
+    }
+
+    const cleaned = metadata.displayName ?? path.basename(relativePath);
+    const token = createFixPickToken();
+    this.pendingFixStartByToken.set(token, {
+      relativePath,
+      searchQuery: cleaned,
+      expiresAt: Date.now() + METADATA_FIX_TTL_MS,
+    });
+
+    const reason = metadata.reason ?? metadata.classificationReason ?? "неизвестная причина";
+
+    await reply(
+      [
+        "Не удалось автоматически определить фильм или сериал.",
+        `Причина: ${reason}`,
+        `Файл сохранён в библиотеке «Фильмы» как «${cleaned}».`,
+        "Нажмите кнопку ниже, чтобы выбрать правильный тайтл в TMDB.",
+      ].join("\n"),
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: CHOOSE_TMDB_BUTTON_TEXT,
+                callback_data: `${FIX_META_CALLBACK_PREFIX}:start:${token}`,
+              },
+            ],
+          ],
+        },
+      },
+    );
   }
 
   async tryHandleMetadataFixText(ctx: Context): Promise<boolean> {
@@ -99,15 +171,30 @@ export class MetadataFixHandlers {
       return false;
     }
 
-    const pending = this.getPendingFixHint(userId);
-
-    if (!pending) {
-      return false;
-    }
-
     const text = ctx.message.text.trim();
 
     if (!text || text.startsWith("/") || isFilesButtonText(text)) {
+      return false;
+    }
+
+    const pendingEpisode = this.getPendingFixEpisode(userId);
+
+    if (pendingEpisode) {
+      const episode = parseSeasonEpisode(text);
+
+      if (!episode) {
+        await ctx.reply("Укажите сезон и серию, например S01E05 или 1x5.");
+        return true;
+      }
+
+      this.pendingFixEpisodeByUserId.delete(userId);
+      await this.applyResolvedMetadata(ctx, pendingEpisode.relativePath, pendingEpisode.resolved, episode);
+      return true;
+    }
+
+    const pending = this.getPendingFixHint(userId);
+
+    if (!pending) {
       return false;
     }
 
@@ -172,41 +259,73 @@ export class MetadataFixHandlers {
     const callback = parseFixMetaCallbackData(getCallbackData(ctx));
 
     if (!callback) {
-      await this.answerCallback(ctx, "Unknown fix action.");
+      await this.answerCallback(ctx, "Неизвестное действие.");
+      return;
+    }
+
+    const message = getCallbackMessage(ctx);
+
+    if (callback.action === "start") {
+      const pendingStart = this.getPendingFixStart(callback.token);
+
+      if (!pendingStart) {
+        await this.answerCallback(ctx, "Сессия выбора истекла.");
+        return;
+      }
+
+      await this.answerCallback(ctx, "Ищу в TMDB…");
+      await this.searchAndPresentMixed(ctx, ctx.from!.id, pendingStart.relativePath, pendingStart.searchQuery);
+      return;
+    }
+
+    if (callback.action === "manual") {
+      const pending = this.getPendingFixPick(callback.token);
+
+      if (!pending) {
+        await this.answerCallback(ctx, "Сессия выбора истекла.");
+        return;
+      }
+
+      this.pendingFixHintByUserId.set(ctx.from!.id, {
+        relativePath: pending.relativePath,
+        expiresAt: Date.now() + METADATA_FIX_TTL_MS,
+      });
+      await this.answerCallback(ctx, "Введите название для поиска.");
+      if (message) {
+        await ctx.telegram.editMessageText(
+          message.chat.id,
+          message.message_id,
+          undefined,
+          `Введите название для поиска в TMDB по файлу ${formatRelativePath(pending.relativePath)}.`,
+        );
+      }
       return;
     }
 
     const pending = this.getPendingFixPick(callback.token);
 
     if (!pending) {
-      await this.answerCallback(ctx, "Fix selection is no longer available.");
+      await this.answerCallback(ctx, "Сессия выбора истекла.");
       return;
     }
-
-    const message = getCallbackMessage(ctx);
 
     if (callback.action === "cancel") {
       this.clearPendingFixPick(ctx.from.id, callback.token);
       if (message) {
-        await ctx.telegram.editMessageText(
-          message.chat.id,
-          message.message_id,
-          undefined,
-          "Metadata fix cancelled.",
-        );
+        await ctx.telegram.editMessageText(message.chat.id, message.message_id, undefined, "Исправление метаданных отменено.");
       }
-      await this.answerCallback(ctx, "Cancelled.");
+      await this.answerCallback(ctx, "Отменено.");
       return;
     }
 
     const candidate = pending.candidates.find((entry) => entry.tmdbId === callback.tmdbId);
 
     if (!candidate) {
-      await this.answerCallback(ctx, "Selected match is not available.");
+      await this.answerCallback(ctx, "Этот вариант недоступен.");
       return;
     }
 
-    await this.answerCallback(ctx, "Applying metadata...");
+    await this.answerCallback(ctx, "Применяю…");
     this.clearPendingFixPick(ctx.from.id, callback.token);
 
     const resolved = await this.tmdbResolver.resolveCandidateById(candidate.kind, candidate.tmdbId);
@@ -217,45 +336,38 @@ export class MetadataFixHandlers {
           message.chat.id,
           message.message_id,
           undefined,
-          "Could not load the selected TMDB title. Try again.",
+          "Не удалось загрузить выбранный тайтл из TMDB. Попробуйте снова.",
         );
       }
       return;
     }
 
-    try {
-      const folderPath = this.fileTree.resolveAbsolutePath(pending.relativePath);
-      const result = await this.metadataFixRenamer.renameFolder(folderPath, resolved);
-      const summary = [
-        `Applied ${resolved.kind === "film" ? "film" : "TV show"}: ${resolved.title}${resolved.year ? ` (${resolved.year})` : ""}`,
-        `Renamed: ${result.renamed.length}`,
-        `Skipped: ${result.skipped.length}`,
-        ...result.renamed.slice(0, 10).map((entry) => `✓ ${path.basename(entry.from)} → ${entry.to}`),
-        ...result.skipped.slice(0, 10).map((entry) => `• ${path.basename(entry.path)}: ${entry.reason}`),
-      ].join("\n");
+    if (resolved.kind === "tv_show") {
+      const itemPath = this.fileTree.resolveAbsolutePath(pending.relativePath);
+      const episode =
+        parseSeasonEpisode(path.basename(itemPath)) ??
+        parseSeasonEpisode(path.basename(path.dirname(itemPath)));
 
-      if (message) {
-        await ctx.telegram.editMessageText(message.chat.id, message.message_id, undefined, summary);
-      } else {
-        await ctx.reply(summary);
+      if (!episode) {
+        this.pendingFixEpisodeByUserId.set(ctx.from.id, {
+          relativePath: pending.relativePath,
+          resolved,
+          expiresAt: Date.now() + METADATA_FIX_TTL_MS,
+        });
+        const prompt = `Сериал: ${formatDisplayTitle(resolved.title, resolved.year)}.\nУкажите сезон и серию (например S02E07).`;
+        if (message) {
+          await ctx.telegram.editMessageText(message.chat.id, message.message_id, undefined, prompt);
+        } else {
+          await ctx.reply(prompt);
+        }
+        return;
       }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      this.logger.exception("[metadata_fix] failed to apply rename", error, {
-        component: "metadata_fix",
-        handler: "metadata_fix",
-        step: "rename",
-        result: "error",
-      });
-      if (message) {
-        await ctx.telegram.editMessageText(
-          message.chat.id,
-          message.message_id,
-          undefined,
-          `Failed to rename files: ${reason}`,
-        );
-      }
+
+      await this.applyResolvedMetadata(ctx, pending.relativePath, resolved, episode, message);
+      return;
     }
+
+    await this.applyResolvedMetadata(ctx, pending.relativePath, resolved, undefined, message);
   }
 
   /** Test helper: seed a pending hint session. */
@@ -286,6 +398,90 @@ export class MetadataFixHandlers {
     return this.getPendingFixPick(token);
   }
 
+  private async applyResolvedMetadata(
+    ctx: Context,
+    relativePath: string,
+    resolved: TmdbResolvedTitle,
+    episode?: { season: number; episode: number },
+    message?: ReturnType<typeof getCallbackMessage>,
+  ): Promise<void> {
+    try {
+      const libraryResolved = await this.applyLibraryMatchIfNeeded(resolved);
+      const itemPath = this.fileTree.resolveAbsolutePath(relativePath);
+      const result = await this.metadataFixRenamer.renameItem(itemPath, libraryResolved, episode);
+      const target = result.renamed[0]?.to;
+      const display =
+        libraryResolved.kind === "film"
+          ? formatDisplayTitle(libraryResolved.title, libraryResolved.year)
+          : `${formatDisplayTitle(libraryResolved.title, libraryResolved.year)} S${String(episode?.season ?? 0).padStart(2, "0")}E${String(episode?.episode ?? 0).padStart(2, "0")}`;
+
+      const summary = target
+        ? `Перенёс в ${formatRelativePath(path.relative(this.settings.download.directory, path.dirname(target)))} как ${display}.`
+        : [
+            `Тайтл: ${display}`,
+            `Переименовано: ${result.renamed.length}`,
+            `Пропущено: ${result.skipped.length}`,
+            ...result.skipped.slice(0, 3).map((entry) => `• ${path.basename(entry.path)}: ${entry.reason}`),
+          ].join("\n");
+
+      if (message) {
+        await ctx.telegram.editMessageText(message.chat.id, message.message_id, undefined, summary);
+      } else {
+        await ctx.reply(summary);
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.exception("[metadata_fix] failed to apply rename", error, {
+        component: "metadata_fix",
+        handler: "metadata_fix",
+        step: "rename",
+        result: "error",
+      });
+      const text = `Не удалось переместить файл: ${reason}`;
+      if (message) {
+        await ctx.telegram.editMessageText(message.chat.id, message.message_id, undefined, text);
+      } else {
+        await ctx.reply(text);
+      }
+    }
+  }
+
+  private async applyLibraryMatchIfNeeded(resolved: TmdbResolvedTitle): Promise<TmdbResolvedTitle> {
+    if (resolved.kind !== "tv_show") {
+      return resolved;
+    }
+
+    const libraryShows = await this.tvLibraryCatalog.listShows();
+    const matches = findDeterministicLibraryMatches(resolved.title, libraryShows);
+
+    if (matches.length !== 1) {
+      return resolved;
+    }
+
+    const show = findLibraryShowById(libraryShows, matches[0].id);
+
+    if (!show) {
+      return resolved;
+    }
+
+    const tmdbId = show.plexIds.tmdb ?? resolved.plexIds.tmdb;
+
+    if (tmdbId === undefined) {
+      return resolved;
+    }
+
+    return {
+      kind: "tv_show",
+      title: show.title,
+      year: show.year ?? resolved.year,
+      plexIds: {
+        ...resolved.plexIds,
+        ...show.plexIds,
+        tmdb: tmdbId,
+      },
+    };
+  }
+
   private async processMetadataFixHint(
     ctx: Context,
     relativePath: string,
@@ -306,28 +502,15 @@ export class MetadataFixHandlers {
       ...(input.text ? { user_text: truncateForLog(input.text) } : {}),
     });
 
-    await ctx.reply("Looking up TMDB matches...");
+    await ctx.reply("Ищу варианты в TMDB…");
 
     const imdbId = parseImdbId(input.text);
 
     if (imdbId) {
-      this.logger.info("[metadata_fix] resolving by IMDb id", {
-        component: "metadata_fix",
-        handler: "metadata_fix",
-        step: "imdb_lookup",
-        imdb_id: imdbId,
-      });
       const candidates = await this.tmdbResolver.findCandidatesByImdbId(imdbId);
 
       if (candidates.length === 0) {
-        this.logger.info("[metadata_fix] no IMDb matches", {
-          component: "metadata_fix",
-          handler: "metadata_fix",
-          step: "imdb_lookup",
-          result: "skipped",
-          imdb_id: imdbId,
-        });
-        await ctx.reply(`No TMDB match found for IMDb ID ${imdbId}.`);
+        await ctx.reply(`В TMDB нет совпадений для IMDb ID ${imdbId}.`);
         return;
       }
 
@@ -343,45 +526,23 @@ export class MetadataFixHandlers {
     });
 
     if (hint.kind === "undefined") {
-      this.logger.info("[metadata_fix] hint unresolved", {
-        component: "metadata_fix",
-        handler: "metadata_fix",
-        step: "hint_parse",
-        result: "skipped",
-        reason: hint.reason,
-      });
-      await ctx.reply(`Could not understand the correction: ${hint.reason}\nUse /files and try Fix metadata again.`);
+      if (input.text?.trim()) {
+        await this.searchAndPresentMixed(ctx, userId, relativePath, input.text.trim());
+        return;
+      }
+
+      await ctx.reply(`Не понял подсказку: ${hint.reason}\nОткройте /files и попробуйте снова.`);
       return;
     }
 
-    this.logger.info("[metadata_fix] searching TMDB", {
-      component: "metadata_fix",
-      handler: "metadata_fix",
-      step: "search",
-      metadata_kind: hint.kind,
-      title: hint.title,
-      ...(hint.year !== undefined ? { year: hint.year } : {}),
-    });
-
-    const candidates = await this.tmdbResolver.searchCandidates({
-      kind: hint.kind,
-      title: hint.title,
+    const candidates = await this.tmdbResolver.searchMixedCandidates({
+      query: hint.title,
       year: hint.year,
       limit: 5,
     });
 
     if (candidates.length === 0) {
-      this.logger.info("[metadata_fix] no TMDB matches", {
-        component: "metadata_fix",
-        handler: "metadata_fix",
-        step: "search",
-        result: "skipped",
-        metadata_kind: hint.kind,
-        title: hint.title,
-      });
-      await ctx.reply(
-        `No TMDB matches found for ${hint.kind === "film" ? "film" : "TV show"} "${hint.title}"${hint.year ? ` (${hint.year})` : ""}.`,
-      );
+      await ctx.reply(`В TMDB ничего не найдено по запросу «${hint.title}».`);
       return;
     }
 
@@ -390,8 +551,29 @@ export class MetadataFixHandlers {
       userId,
       relativePath,
       candidates,
-      `Search: ${hint.title}${hint.year ? ` (${hint.year})` : ""}`,
+      `Поиск: ${hint.title}${hint.year ? ` (${hint.year})` : ""}`,
     );
+  }
+
+  private async searchAndPresentMixed(
+    ctx: Context,
+    userId: number,
+    relativePath: string,
+    query: string,
+  ): Promise<void> {
+    const cleaned = cleanDownloadTitle(query);
+    const candidates = await this.tmdbResolver.searchMixedCandidates({
+      query: cleaned.query || query,
+      year: cleaned.year,
+      limit: 5,
+    });
+
+    if (candidates.length === 0) {
+      await ctx.reply(`В TMDB ничего не найдено по запросу «${query}».`);
+      return;
+    }
+
+    await this.presentCandidates(ctx, userId, relativePath, candidates, `Поиск: ${query}`);
   }
 
   private async presentCandidates(
@@ -401,15 +583,10 @@ export class MetadataFixHandlers {
     candidates: TmdbCandidate[],
     searchLabel: string,
   ): Promise<void> {
-    const kind = candidates[0]!.kind;
-    const homogeneous = candidates.every((candidate) => candidate.kind === kind);
-    const kindLabel = homogeneous ? (kind === "film" ? "film" : "TV show") : "title";
-
     this.clearPendingFixPick(userId);
     const token = createFixPickToken();
     this.pendingFixPickByToken.set(token, {
       relativePath,
-      kind,
       candidates,
       expiresAt: Date.now() + METADATA_FIX_TTL_MS,
     });
@@ -420,16 +597,15 @@ export class MetadataFixHandlers {
       handler: "metadata_fix",
       step: "present",
       candidate_count: candidates.length,
-      metadata_kind: kind,
       search_label: searchLabel,
       folder_name: formatRelativePath(relativePath),
     });
 
     await ctx.reply(
       [
-        `Choose the correct ${kindLabel} for: ${formatRelativePath(relativePath)}`,
+        `Выберите правильный тайтл для: ${formatRelativePath(relativePath)}`,
         searchLabel,
-        "Even a single match must be confirmed.",
+        "Даже один вариант нужно подтвердить кнопкой.",
       ].join("\n"),
       createCandidateReplyMarkup(token, candidates),
     );
@@ -444,6 +620,36 @@ export class MetadataFixHandlers {
 
     if (pending.expiresAt <= Date.now()) {
       this.pendingFixHintByUserId.delete(userId);
+      return undefined;
+    }
+
+    return pending;
+  }
+
+  private getPendingFixEpisode(userId: number): PendingFixEpisode | undefined {
+    const pending = this.pendingFixEpisodeByUserId.get(userId);
+
+    if (!pending) {
+      return undefined;
+    }
+
+    if (pending.expiresAt <= Date.now()) {
+      this.pendingFixEpisodeByUserId.delete(userId);
+      return undefined;
+    }
+
+    return pending;
+  }
+
+  private getPendingFixStart(token: string): PendingFixStart | undefined {
+    const pending = this.pendingFixStartByToken.get(token);
+
+    if (!pending) {
+      return undefined;
+    }
+
+    if (pending.expiresAt <= Date.now()) {
+      this.pendingFixStartByToken.delete(token);
       return undefined;
     }
 
@@ -515,8 +721,8 @@ export function parseFixMetaCallbackData(data: string | undefined): FixMetaCallb
     return undefined;
   }
 
-  if (action === "cancel") {
-    return { action: "cancel", token };
+  if (action === "cancel" || action === "manual" || action === "start") {
+    return { action, token };
   }
 
   if (action === "pick" && tmdbIdRaw) {
@@ -540,7 +746,14 @@ export function createCandidateReplyMarkup(token: string, candidates: TmdbCandid
 
   rows.push([
     {
-      text: "Cancel",
+      text: "Ввести название",
+      callback_data: `${FIX_META_CALLBACK_PREFIX}:manual:${token}`,
+    },
+  ]);
+
+  rows.push([
+    {
+      text: "Отмена",
       callback_data: `${FIX_META_CALLBACK_PREFIX}:cancel:${token}`,
     },
   ]);
@@ -550,7 +763,7 @@ export function createCandidateReplyMarkup(token: string, candidates: TmdbCandid
 
 export function formatCandidateLabel(candidate: TmdbCandidate): string {
   const year = candidate.year ? ` (${candidate.year})` : "";
-  const kind = candidate.kind === "film" ? "Film" : "TV";
+  const kind = candidate.kind === "film" ? "Фильм" : "Сериал";
   const label = `${kind}: ${candidate.title}${year}`;
 
   return label.length <= 64 ? label : `${label.slice(0, 61)}...`;

@@ -32,6 +32,7 @@ import { truncateForLog } from "../config/logger.js";
 import { createProgressReporter } from "../download/progress-reporter.js";
 import type { Settings } from "../config/settings.js";
 import type { StatusEditScheduler } from "../download/status-edit-scheduler.js";
+import type { MetadataFixHandlers } from "./metadata-fix-handlers.js";
 import {
   answerCallback,
   BOT_PRIVATE_MESSAGE,
@@ -68,6 +69,7 @@ export class DownloadHandlers {
     private readonly statusScheduler: StatusEditScheduler,
     private readonly progressMinIntervalMs: number,
     private readonly progressPercentStep: number,
+    private readonly metadataFix?: MetadataFixHandlers,
   ) {}
 
   async handleDownloadableMessage(
@@ -320,6 +322,11 @@ export class DownloadHandlers {
         downloadComplete = true;
         queueOutcome = "success";
         await progressReporter.complete(result, reply);
+
+        if (prepared.metadata.kind === "unrecognized" && this.metadataFix) {
+          const relativePath = path.relative(this.settings.download.directory, result.outputPath);
+          await this.metadataFix.notifyUnrecognizedDownload(reply, relativePath, prepared.metadata);
+        }
       } catch (error) {
         if (isDownloadCanceled(error)) {
           this.logger.info("[download] canceled", {

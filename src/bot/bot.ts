@@ -81,6 +81,7 @@ export class BotService {
       statusScheduler,
       settings.app.statusUpdateMinIntervalMs,
       settings.app.statusUpdatePercentStep,
+      this.metadataFix,
     );
     this.deleteHandlers = new DeleteHandlers(settings, logger, deleteButtons, activeDownloads);
     this.fileTreeHandlers = new FileTreeHandlers(settings, logger, this.fileTree, this.metadataFix);

@@ -322,7 +322,7 @@ test("confirming delete aborts the active download and suppresses failed status"
       async prepareDownload() {
         return {
           message: { id: 1 },
-          metadata: { kind: "undefined" as const, reason: "test" },
+          metadata: { kind: "unrecognized" as const, reason: "test", displayName: "test" },
           canonicalPath: outputPath,
         };
       },

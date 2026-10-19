@@ -4,14 +4,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isDownloadCanceled, isFileReferenceError, TelegramDownloader, type DownloadProgress } from "../src/download/downloader.js";
 import type { PlexMetadata } from "../src/metadata/media-metadata.js";
-import { buildMoviePath, buildTvShowPath, buildUndefinedPath } from "../src/metadata/plex-paths.js";
+import { buildMoviePath, buildTvShowPath, buildUnrecognizedMoviePath } from "../src/metadata/plex-paths.js";
 import { createLoggerSpy, createSettings, withTempDir } from "./helpers/test-utils.js";
 
 test("downloadFromBotMessage requires the downloader to be started", async () => {
   const downloader = new TelegramDownloader(
     createSettings(),
     createLoggerSpy(),
-    createMetadataService({ kind: "undefined", reason: "none" }) as never,
+    createMetadataService({ kind: "unrecognized", reason: "none", displayName: "none" }) as never,
   );
 
   await assert.rejects(
@@ -62,7 +62,7 @@ test("downloadFromBotMessage saves classified films, avoids collisions, and repo
   });
 });
 
-test("downloadFromBotMessage saves TV shows and undefined classifications into expected folders", async () => {
+test("downloadFromBotMessage saves TV shows and unrecognized classifications into expected folders", async () => {
   await withTempDir(async (dir) => {
     const tvDownloader = createStartedDownloader({
       downloadDirectory: dir,
@@ -71,7 +71,7 @@ test("downloadFromBotMessage saves TV shows and undefined classifications into e
     });
     const undefinedDownloader = createStartedDownloader({
       downloadDirectory: dir,
-      metadata: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "unrecognized", reason: "unknown", displayName: "bad name" },
       client: createFakeClient({ messages: [{ id: 12, media: media("MessageMediaPhoto") }] }),
     });
 
@@ -92,7 +92,10 @@ test("downloadFromBotMessage saves TV shows and undefined classifications into e
       tvResult.outputPath,
       path.join(dir, "TV Shows", "Show Name", "Season 03", "Show Name - s03e04.mkv"),
     );
-    assert.equal(undefinedResult.outputPath, path.join(dir, "Undefined", "bad_name_.mkv"));
+    assert.equal(
+      undefinedResult.outputPath,
+      buildUnrecognizedMoviePath(dir, "bad name", "bad_name_.mkv"),
+    );
   });
 });
 
@@ -182,7 +185,7 @@ test("downloadFromBotMessage falls back to recent outgoing bot media when direct
     });
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      metadata: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "unrecognized", reason: "unknown", displayName: "fallback" },
       client: fakeClient,
     });
 
@@ -203,7 +206,7 @@ test("downloadFromBotMessage fails when no downloadable media can be found", asy
   await withTempDir(async (dir) => {
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      metadata: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "unrecognized", reason: "unknown", displayName: "fallback" },
       client: createFakeClient({
         messages: [{ id: 30 }],
         iterMessages: [{ id: 31, media: media("MessageMediaUnsupported"), date: 1000 }],
@@ -237,7 +240,7 @@ test("downloadFromBotMessage routes downloads through the sender user session", 
         },
       }),
       createLoggerSpy(),
-      createMetadataService({ kind: "undefined", reason: "unknown" }) as never,
+      createMetadataService({ kind: "unrecognized", reason: "unknown", displayName: "fallback" }) as never,
     );
 
     Object.assign(downloader as unknown as { userClients: Map<number, { client: FakeClient; botEntity: unknown }> }, {
@@ -296,7 +299,7 @@ test("downloadPrepared serializes concurrent GramJS media downloads for the same
 
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      metadata: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "unrecognized", reason: "unknown", displayName: "fallback" },
       client: fakeClient,
     });
 
@@ -376,7 +379,7 @@ test("downloadPrepared allows concurrent GramJS media downloads for different us
         },
       }),
       createLoggerSpy(),
-      createMetadataService({ kind: "undefined", reason: "unknown" }) as never,
+      createMetadataService({ kind: "unrecognized", reason: "unknown", displayName: "fallback" }) as never,
     );
 
     Object.assign(downloader as unknown as { userClients: Map<number, { client: FakeClient; botEntity: unknown }> }, {
@@ -415,7 +418,7 @@ test("start fails when no GramJS sessions are configured", async () => {
       },
     }),
     createLoggerSpy(),
-    createMetadataService({ kind: "undefined", reason: "unknown" }) as never,
+    createMetadataService({ kind: "unrecognized", reason: "unknown", displayName: "fallback" }) as never,
   );
 
   await assert.rejects(downloader.start(), /No GramJS user sessions configured/);
@@ -607,7 +610,7 @@ test("downloadPrepared re-fetches the bot message after waiting in the exclusive
 
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      metadata: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "unrecognized", reason: "unknown", displayName: "fallback" },
       client: fakeClient,
     });
 
@@ -671,7 +674,7 @@ test("downloadPrepared retries once after FILE_REFERENCE_EXPIRED", async () => {
 
     const downloader = createStartedDownloader({
       downloadDirectory: dir,
-      metadata: { kind: "undefined", reason: "unknown" },
+      metadata: { kind: "unrecognized", reason: "unknown", displayName: "fallback" },
       client: fakeClient,
     });
 
@@ -759,7 +762,7 @@ function createMetadataService(metadata: PlexMetadata, useRealBuildOutputPath = 
           });
         }
 
-        return buildUndefinedPath(rootDirectory, fallbackFileName);
+        return buildUnrecognizedMoviePath(rootDirectory, resolvedMetadata.displayName ?? "fallback", fallbackFileName);
       }
 
       if (resolvedMetadata.kind === "film" && resolvedMetadata.title) {
@@ -784,7 +787,7 @@ function createMetadataService(metadata: PlexMetadata, useRealBuildOutputPath = 
         );
       }
 
-      return path.join(rootDirectory, "Undefined", fallbackFileName);
+      return buildUnrecognizedMoviePath(rootDirectory, resolvedMetadata.displayName ?? "fallback", fallbackFileName);
     },
   };
 }
