@@ -44,23 +44,20 @@ export function planMetadataFixSearchQueries(fileName: string, extraQuery?: stri
 }
 
 export function mergeTmdbCandidates(batches: TmdbCandidate[][]): TmdbCandidate[] {
-  const seen = new Set<string>();
-  const merged: TmdbCandidate[] = [];
+  const bestByKey = new Map<string, TmdbCandidate>();
 
   for (const batch of batches) {
     for (const candidate of batch) {
       const key = `${candidate.kind}:${candidate.tmdbId}`;
+      const existing = bestByKey.get(key);
 
-      if (seen.has(key)) {
-        continue;
+      if (!existing || candidate.score > existing.score) {
+        bestByKey.set(key, candidate);
       }
-
-      seen.add(key);
-      merged.push(candidate);
     }
   }
 
-  return merged.sort((left, right) => right.score - left.score).slice(0, 5);
+  return [...bestByKey.values()].sort((left, right) => right.score - left.score).slice(0, 5);
 }
 
 export function buildAutoSearchLabel(queries: MetadataFixSearchQuery[]): string {

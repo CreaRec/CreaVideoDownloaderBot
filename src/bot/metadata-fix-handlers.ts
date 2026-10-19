@@ -604,7 +604,7 @@ export class MetadataFixHandlers {
   ): Promise<{ candidates: TmdbCandidate[]; searchLabel: string; triedQueries: string[] }> {
     const fileName = path.basename(relativePath);
     const queries = planMetadataFixSearchQueries(fileName, extraQuery);
-    const guessed = await this.metadataFixHintParser.guessTitleFromFilename(fileName);
+    const guessed = await this.metadataFixHintParser.guessTitleFromFilename?.(fileName);
 
     if (guessed?.title) {
       const guessLabel = `${guessed.title}${guessed.year ? ` (${guessed.year})` : ""}`;
