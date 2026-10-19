@@ -41,6 +41,7 @@ test("resolveMetadata merges TMDB movie ids into Plex metadata", async () => {
     displayTitle: "Inception (2010)",
     year: 2010,
     plexIds: { imdb: "tt1375666", tmdb: 27205 },
+    classificationReason: "classified",
   });
 });
 
@@ -80,6 +81,7 @@ test("resolveMetadata keeps OpenAI tv metadata when TMDB is unavailable", async 
     episode: 1,
     episodeTitle: "Pilot",
     plexIds: undefined,
+    classificationReason: "classified",
   });
 });
 

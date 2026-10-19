@@ -97,14 +97,20 @@ function stripCaptionNoise(caption: string): string {
 }
 
 function normalizeTitleCandidate(value: string): string {
-  let cleaned = value
+  const normalized = value
     .replace(/[._]+/g, " ")
     .replace(/[()[\]{}]+/g, " ")
     .replace(QUALITY_PATTERN, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  cleaned = cleaned
+  const cleaned = filterNoiseTokens(normalized).replace(TRAILING_INDEX_PATTERN, "").trim();
+
+  return cleaned || filterNoiseTokens(normalized) || normalized;
+}
+
+function filterNoiseTokens(value: string): string {
+  return value
     .split(" ")
     .filter((token) => {
       const normalized = token.toLowerCase();
@@ -117,18 +123,16 @@ function normalizeTitleCandidate(value: string): string {
         return false;
       }
 
+      for (const noise of NOISE_TOKENS) {
+        if (normalized.startsWith(noise)) {
+          return false;
+        }
+      }
+
       return true;
     })
     .join(" ")
     .trim();
-
-  cleaned = cleaned.replace(TRAILING_INDEX_PATTERN, "").trim();
-
-  if (!cleaned) {
-    return value.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
-  }
-
-  return cleaned;
 }
 
 function extractYear(value?: string): number | undefined {

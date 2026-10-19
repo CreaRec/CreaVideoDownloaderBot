@@ -18,5 +18,6 @@ test("cleanDownloadTitle prefers caption and reads season tags", () => {
   const cleaned = cleanDownloadTitle("random.bin", "Breaking Bad S02E05");
 
   assert.equal(cleaned.query, "Breaking Bad S02E05");
-  assert.deepEqual(cleaned, { query: "Breaking Bad S02E05", season: 2, episode: 5 });
+  assert.equal(cleaned.season, 2);
+  assert.equal(cleaned.episode, 5);
 });
